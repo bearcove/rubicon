@@ -15,7 +15,7 @@ macro_rules! thread_local {
 #[macro_export]
 macro_rules! thread_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = const { $expr:expr } $(;)?) => {
-        thread_local! {
+        $crate::thread_local! {
             $(#[$attrs])*
             $vis static $name: $ty = $expr;
         }
@@ -34,6 +34,7 @@ macro_rules! thread_local {
             }
 
             #[no_mangle]
+            #[used]
             static $name: Rust1_79LocalKeyLayout<()> = Rust1_79LocalKeyLayout {
                 inner: |v| {
                     unsafe {
@@ -58,7 +59,7 @@ macro_rules! thread_local {
 #[macro_export]
 macro_rules! thread_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = const { $expr:expr } $(;)?) => {
-        ::std::thread_local! {
+        $crate::thread_local! {
             $(#[$attrs])*
             $vis static $name: $ty = $expr;
         }

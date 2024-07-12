@@ -74,7 +74,7 @@ macro_rules! thread_local {
             }
         }
 
-        static $name: &'static ::std::thread::LocalKey<$ty> = unsafe { std::mem::transmute(&$name::LK) };
+        $vis static $name: &'static ::std::thread::LocalKey<$ty> = unsafe { std::mem::transmute(&$name::LK) };
     };
 }
 

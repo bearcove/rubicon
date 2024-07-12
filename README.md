@@ -170,19 +170,24 @@ If you must:
 
 ## FAQ
 
-Q: Is this safe?
-A: God no. Prepare for fun stack traces (if you get stack traces at all).
+### Is this safe?
 
-Q: Doesn't `crate-type = ["dylib"]` fix all this?
-A: Yes but no, because then you have a single crate graph and everything takes forever% CPU/RAM, which is what we're trying to avoid. The whole point of splitting your app into binary + several cdylibs (load-bearing "c") is that they are separate crate graphs, you can rust-analyze them fully independently, build them with full concurrency in CI (compute is cheap, waiting for the linker is not), and as long as you rebuild everything when you bump your rustc version you _should_ be okay.
+God no. Prepare for fun stack traces (if you get stack traces at all).
 
-Q: Can't we just have all shared objects share a single "libtokio.so"?
-A: No, because monomorphization: if you have an app and modules A through C, there's 4 versions of `libtokio.so`, none of which have all the "generic instantiations" you need. The only way to get _all the instantiations_ you need would be to depend onthe app AND all its modules, creating a single ginormous crate graph again, which defeats
+### Doesn't `crate-type = ["dylib"]` fix all this?
+
+Yes but no, because then you have a single crate graph and everything takes forever% CPU/RAM, which is what we're trying to avoid. The whole point of splitting your app into binary + several cdylibs (load-bearing "c") is that they are separate crate graphs, you can rust-analyze them fully independently, build them with full concurrency in CI (compute is cheap, waiting for the linker is not), and as long as you rebuild everything when you bump your rustc version you _should_ be okay.
+
+### Can't we just have all shared objects share a single "libtokio.so"?
+
+No, because monomorphization: if you have an app and modules A through C, there's 4 versions of `libtokio.so`, none of which have all the "generic instantiations" you need. The only way to get _all the instantiations_ you need would be to depend onthe app AND all its modules, creating a single ginormous crate graph again, which defeats
 the whole point.
 
-Q: What about LTO / the runtime cost of dynamic linking?
-A: Yeah sorry, no LTO, obviously, and yes, dynamic linking has a cost. No
+### What about LTO / the runtime cost of dynamic linking?
+
+Yeah sorry, no LTO, obviously, and yes, dynamic linking has a cost. No
 cross-object inlining. That's the deal.
 
-Q: Should I use this in production?
-A: You shouldn't, but I'm gonna.
+### Should I use this in production?
+
+You shouldn't, but I'm gonna.

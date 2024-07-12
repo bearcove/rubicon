@@ -68,14 +68,27 @@ macro_rules! thread_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
         #[allow(non_snake_case)]
         mod $name {
+            pub(super) struct Rust1_79LocalKeyLayout<T: 'static> {
+                pub(super) inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
+            }
+
             extern "C" {
                 #[link_name = stringify!($name)]
                 #[allow(improper_ctypes)]
-                pub(super) static LK: ::std::thread::LocalKey<()>;
+                pub(super) static LK: Rust1_79LocalKeyLayout<()>;
             }
         }
 
-        $vis static $name: &'static ::std::thread::LocalKey<$ty> = unsafe { std::mem::transmute(&$name::LK) };
+        $vis static $name: ::std::thread::LocalKey<$ty> = unsafe {
+            type LKL = $name::Rust1_79LocalKeyLayout<()>;
+            let lk = LKL {
+                inner: |v| {
+                    let lk =  std::mem::transmute::<_, &LKL>(&$name::LK);
+                    (lk.inner)(v)
+                }
+            };
+            ::std::mem::transmute(lk)
+        };
     };
 }
 

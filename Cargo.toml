@@ -1,0 +1,21 @@
+[package]
+name = "rubicon"
+version = "1.0.0"
+edition = "2021"
+authors = ["Amos Wenger <amos@bearcove.net>"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bearcove/rubicon"
+description = "A way to export/import thread-locals from/to shared objects"
+categories = ["development-tools::ffi"]
+keywords = ["ffi", "thread-local"]
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+
+[features]
+default = []
+export-globals = []
+import-globals = []

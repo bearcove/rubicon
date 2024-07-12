@@ -39,13 +39,13 @@ macro_rules! thread_local {
                     unsafe {
                         // pretty weak guarantee but oh well
                         assert_eq!(
-                            std::mem::size_of::<std::thread::LocalKey<()>>(),
-                            std::mem::size_of::<Rust1_79LocalKeyLayout<()>>()
+                            ::std::mem::size_of::<std::thread::LocalKey<()>>(),
+                            ::std::mem::size_of::<Rust1_79LocalKeyLayout<()>>()
                         );
 
                         // we don't have `$ty` in this scope, so we can't put the proper annotations
                         #[allow(clippy::missing_transmute_annotations)]
-                        let lk = std::mem::transmute::<_, Rust1_79LocalKeyLayout<()>>(super::$name);
+                        let lk = ::std::mem::transmute::<_, Rust1_79LocalKeyLayout<()>>(super::$name);
                         (lk.inner)(v)
                     }
                 }
@@ -58,7 +58,7 @@ macro_rules! thread_local {
 #[macro_export]
 macro_rules! thread_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = const { $expr:expr } $(;)?) => {
-        tokio_thread_local! {
+        ::std::thread_local! {
             $(#[$attrs])*
             $vis static $name: $ty = $expr;
         }

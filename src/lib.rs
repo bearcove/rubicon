@@ -1,6 +1,8 @@
 #[cfg(all(feature = "export-globals", feature = "import-globals"))]
 compile_error!("The features `export-globals` and `import-globals` cannot be used together");
 
+pub use paste::paste;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -84,7 +86,7 @@ macro_rules! thread_local {
     };
 
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        paste::paste! {
+        $crate::paste! {
             #[allow(non_camel_case_types)]
             type [<$name:upper _KEY>] = ::std::thread::LocalKey<$ty>;
 
@@ -118,7 +120,7 @@ macro_rules! process_local {
 #[macro_export]
 macro_rules! process_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        paste::paste! {
+        $crate::paste! {
             #[allow(non_camel_case_types)]
             type [<$name:upper _KEY>] = $ty;
 

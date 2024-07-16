@@ -115,17 +115,16 @@ macro_rules! process_local {
 #[macro_export]
 macro_rules! process_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        type ProcessLocalType = $ty;
+        #[allow(non_snake_case)]
         mod $name {
             extern "C" {
                 #[link_name = stringify!($name)]
                 #[allow(improper_ctypes)]
-                pub(super) static KEY: $ty;
+                pub(super) static KEY: super::ProcessLocalType;
             }
         }
-
-        $vis static $name: $crate::MakeExternStaticSafe<$ty> = $crate::MakeExternStaticSafe(
-            unsafe { std::mem::transmute::<&$ty, &$ty>(&$name::KEY) }
-        );
+        $vis static $name: $crate::MakeExternStaticSafe<$ty> = $crate::MakeExternStaticSafe(unsafe { &$name::KEY });
     }
 }
 

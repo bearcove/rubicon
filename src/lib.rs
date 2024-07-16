@@ -84,16 +84,21 @@ macro_rules! thread_local {
     };
 
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        #[allow(non_snake_case)]
-        mod $name {
-            extern "C" {
-                #[link_name = stringify!($name)]
-                #[allow(improper_ctypes)]
-                pub(super) static KEY: ::std::thread::LocalKey<$ty>;
-            }
-        }
+        paste::paste! {
+            #[allow(non_camel_case_types)]
+            type [<$name:upper _KEY>] = ::std::thread::LocalKey<$ty>;
 
-        $vis static $name: $crate::TrustedExtern<::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &$name::KEY });
+            #[allow(non_snake_case)]
+            mod $name {
+                extern "C" {
+                    #[link_name = stringify!($name)]
+                    #[allow(improper_ctypes)]
+                    pub(super) static KEY: super::[<$name:upper _KEY>];
+                }
+            }
+
+            $vis static $name: $crate::TrustedExtern<::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &$name::KEY });
+        }
     };
 }
 
@@ -113,16 +118,21 @@ macro_rules! process_local {
 #[macro_export]
 macro_rules! process_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        #[allow(non_snake_case)]
-        mod $name {
-            extern "C" {
-                #[link_name = stringify!($name)]
-                #[allow(improper_ctypes)]
-                pub(super) static KEY: $ty;
-            }
-        }
+        paste::paste! {
+            #[allow(non_camel_case_types)]
+            type [<$name:upper _KEY>] = $ty;
 
-        $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &$name::KEY });
+            #[allow(non_snake_case)]
+            mod $name {
+                extern "C" {
+                    #[link_name = stringify!($name)]
+                    #[allow(improper_ctypes)]
+                    pub(super) static KEY: super::[<$name:upper _KEY>];
+                }
+            }
+
+            $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &$name::KEY });
+        }
     }
 }
 

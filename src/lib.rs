@@ -24,33 +24,8 @@ macro_rules! thread_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
         ::std::thread_local! {
             $(#[$attrs])*
-            $vis static $name: $ty = $expr;
-        }
-
-        #[allow(non_snake_case)]
-        mod $name {
-            struct Rust1_79LocalKeyLayout<T: 'static> {
-                inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
-            }
-
             #[no_mangle]
-            #[used]
-            static $name: Rust1_79LocalKeyLayout<()> = Rust1_79LocalKeyLayout {
-                inner: |v| {
-                    unsafe {
-                        // pretty weak guarantee but oh well
-                        assert_eq!(
-                            ::std::mem::size_of::<std::thread::LocalKey<()>>(),
-                            ::std::mem::size_of::<Rust1_79LocalKeyLayout<()>>()
-                        );
-
-                        // we don't have `$ty` in this scope, so we can't put the proper annotations
-                        #[allow(clippy::missing_transmute_annotations)]
-                        let lk = ::std::mem::transmute::<_, Rust1_79LocalKeyLayout<()>>(super::$name);
-                        (lk.inner)(v)
-                    }
-                }
-            };
+            $vis static $name: $ty = $expr;
         }
     };
 }
@@ -75,15 +50,16 @@ macro_rules! thread_local {
             extern "C" {
                 #[link_name = stringify!($name)]
                 #[allow(improper_ctypes)]
-                pub(super) static LK: Rust1_79LocalKeyLayout<()>;
+                pub(super) static KEY: Rust1_79LocalKeyLayout<()>;
             }
         }
 
         $vis static $name: ::std::thread::LocalKey<$ty> = unsafe {
-            type LKL = $name::Rust1_79LocalKeyLayout<()>;
-            let lk = LKL {
+            type Layout = $name::Rust1_79LocalKeyLayout<()>;
+            let lk = Layout {
                 inner: |v| {
-                    let lk =  std::mem::transmute::<_, &LKL>(&$name::LK);
+                    #[allow(clippy::missing_transmute_annotations)]
+                    let lk =  std::mem::transmute::<_, &Layout>(&$name::KEY);
                     (lk.inner)(v)
                 }
             };
@@ -200,6 +176,7 @@ impl<'a> std::fmt::Display for Beacon<'a> {
 /// Prints a message, prefixed with a cycling millisecond timestamp (wraps at 99999),
 /// a colorized shared object id, a colorized thread name+id, and the given message.
 #[macro_export]
+#[cfg(feature = "soprintln")]
 macro_rules! soprintln {
     ($($arg:tt)*) => {
         {
@@ -236,6 +213,12 @@ macro_rules! soprintln {
             }
         }
     };
+}
+
+#[macro_export]
+#[cfg(not(feature = "soprintln"))]
+macro_rules! soprintln {
+    ($($arg:tt)*) => {};
 }
 
 struct RubiconSample {

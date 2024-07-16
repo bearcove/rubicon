@@ -1,7 +1,25 @@
 #[cfg(all(feature = "export-globals", feature = "import-globals"))]
 compile_error!("The features `export-globals` and `import-globals` cannot be used together");
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+//=====crimes
+
+/// This gets rid of Rust compiler errors when trying to refer to an `extern "C"`
+/// static. That error is there for a reason, but we're doing crimes.
+pub struct MakeExternStaticSafe<T: 'static>(pub &'static T);
+
+use std::ops::Deref;
+
+impl<T> Deref for MakeExternStaticSafe<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+//===== thread-locals
 
 #[cfg(not(any(feature = "import-globals", feature = "export-globals")))]
 #[macro_export]
@@ -73,24 +91,55 @@ macro_rules! thread_local {
                 #[allow(improper_ctypes)]
                 pub(super) static KEY: ::std::thread::LocalKey<()>;
             }
-
-            pub(super) struct MakeExternStaticSafe<T: 'static>(pub(super) &'static T);
-
-            use std::ops::Deref;
-
-            impl<T> Deref for MakeExternStaticSafe<T> {
-                type Target = T;
-                fn deref(&self) -> &Self::Target {
-                    &self.0
-                }
-            }
         }
 
-        $vis static $name: $name::MakeExternStaticSafe<::std::thread::LocalKey<$ty>> = $name::MakeExternStaticSafe(
+        $vis static $name: $crate::MakeExternStaticSafe<::std::thread::LocalKey<$ty>> = $crate::MakeExternStaticSafe(
             unsafe { std::mem::transmute::<&std::thread::LocalKey<()>, &::std::thread::LocalKey<$ty>>(&$name::KEY) }
         );
     };
 }
+
+//===== process-locals (statics)
+
+#[cfg(feature = "export-globals")]
+#[macro_export]
+macro_rules! process_local {
+    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        #[no_mangle]
+        $(#[$attrs])*
+        $vis static $name: $ty = $expr;
+    }
+}
+
+#[cfg(feature = "import-globals")]
+#[macro_export]
+macro_rules! process_local {
+    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        mod $name {
+            extern "C" {
+                #[link_name = stringify!($name)]
+                #[allow(improper_ctypes)]
+                pub(super) static KEY: $ty;
+            }
+        }
+
+        $vis static $name: $crate::MakeExternStaticSafe<$ty> = $crate::MakeExternStaticSafe(
+            unsafe { std::mem::transmute::<&$ty, &$ty>(&$name::KEY) }
+        );
+    }
+}
+
+#[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
+#[macro_export]
+macro_rules! process_local {
+    // nothing special happens in normal mode
+    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        $(#[$attrs])*
+        $vis static $name: $ty = $expr;
+    }
+}
+
+//===== soprintln!
 
 #[no_mangle]
 static SHARED_OBJECT_ID_REF: u64 = 0;
@@ -250,15 +299,20 @@ struct RubiconSample {
 }
 
 crate::thread_local! {
-    static RUBICON_SAMPLE: RubiconSample = RubiconSample {
+    static RUBICON_TL_SAMPLE: RubiconSample = RubiconSample {
         contents: Arc::new(123),
     };
 }
 
+crate::process_local! {
+    static RUBICON_PL_SAMPLE: AtomicU64 = AtomicU64::new(123);
+}
+
 pub fn world_goes_round() {
     crate::soprintln!("hi");
-    RUBICON_SAMPLE.with(|s| {
+    RUBICON_TL_SAMPLE.with(|s| {
         let contents = s.contents.clone();
         println!("contents: {}", contents);
     });
+    RUBICON_PL_SAMPLE.fetch_add(1, Ordering::Relaxed);
 }

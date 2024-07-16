@@ -6,14 +6,14 @@ check:
 build:
     @echo "======== Regular build ========"
     cargo build
-    nm target/debug/librubicon.dylib | grep RUBICON_SAMPLE
+    nm target/debug/librubicon.dylib | grep -E 'RUBICON_(TL|PL)_SAMPLE'
 
     @echo
     @echo "======== Export globals ========"
     cargo build --features export-globals
-    nm target/debug/librubicon.dylib | grep RUBICON_SAMPLE
+    nm target/debug/librubicon.dylib | grep -E 'RUBICON_(TL|PL)_SAMPLE'
 
     @echo
     @echo "======== Import globals ========"
     cargo build --features import-globals
-    nm target/debug/librubicon.dylib | grep RUBICON_SAMPLE
+    nm target/debug/librubicon.dylib | grep -E 'RUBICON_(TL|PL)_SAMPLE'

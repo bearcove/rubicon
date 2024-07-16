@@ -92,24 +92,23 @@ macro_rules! thread_local {
     };
 }
 
-fn shared_object_id_ref() -> u64 {
-    unreachable!();
-}
+#[no_mangle]
+static SHARED_OBJECT_ID_REF: u64 = 0;
 
 /// Returns a unique identifier for the current shared object
 /// (based on the address of the `shared_object_id_ref` function).
 pub fn shared_object_id() -> u64 {
-    &shared_object_id_ref as *const _ as u64
+    &SHARED_OBJECT_ID_REF as *const _ as u64
 }
 
 #[cfg(feature = "import-globals")]
-pub(crate) static RUBICON_MODE: &str = "I"; // "import"
+pub static RUBICON_MODE: &str = "I"; // "import"
 
 #[cfg(feature = "export-globals")]
-pub(crate) static RUBICON_MODE: &str = "E"; // "export"
+pub static RUBICON_MODE: &str = "E"; // "export"
 
 #[cfg(not(any(feature = "import-globals", feature = "export-globals")))]
-pub(crate) static RUBICON_MODE: &str = "N"; // "normal"
+pub static RUBICON_MODE: &str = "N"; // "normal"
 
 #[cfg(all(feature = "import-globals", feature = "export-globals"))]
 compile_error!("The features \"import-globals\" and \"export-globals\" are mutually exclusive");
@@ -124,6 +123,16 @@ pub struct Beacon<'a> {
 }
 
 impl<'a> Beacon<'a> {
+    /// Creates a new `Beacon` from a pointer.
+    pub fn from_ptr<T>(name: &'a str, ptr: *const T) -> Self {
+        Self::new(name, ptr as u64)
+    }
+
+    /// Creates a new `Beacon` from a reference.
+    pub fn from_ref<T>(name: &'a str, r: &T) -> Self {
+        Self::new(name, r as *const T as u64)
+    }
+
     /// Creates a new `Beacon` with the given extra string and value.
     pub fn new(name: &'a str, u: u64) -> Self {
         fn hash(mut x: u64) -> u64 {

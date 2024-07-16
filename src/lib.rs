@@ -8,11 +8,11 @@ use std::sync::Arc;
 
 /// This gets rid of Rust compiler errors when trying to refer to an `extern "C"`
 /// static. That error is there for a reason, but we're doing crimes.
-pub struct MakeExternStaticSafe<T: 'static>(pub &'static T);
+pub struct TrustedExtern<T: 'static>(pub &'static T);
 
 use std::ops::Deref;
 
-impl<T> Deref for MakeExternStaticSafe<T> {
+impl<T> Deref for TrustedExtern<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         self.0
@@ -89,13 +89,11 @@ macro_rules! thread_local {
             extern "C" {
                 #[link_name = stringify!($name)]
                 #[allow(improper_ctypes)]
-                pub(super) static KEY: ::std::thread::LocalKey<()>;
+                pub(super) static KEY: ::std::thread::LocalKey<$ty>;
             }
         }
 
-        $vis static $name: $crate::MakeExternStaticSafe<::std::thread::LocalKey<$ty>> = $crate::MakeExternStaticSafe(
-            unsafe { std::mem::transmute::<&std::thread::LocalKey<()>, &::std::thread::LocalKey<$ty>>(&$name::KEY) }
-        );
+        $vis static $name: $crate::TrustedExtern<::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &$name::KEY });
     };
 }
 
@@ -115,16 +113,16 @@ macro_rules! process_local {
 #[macro_export]
 macro_rules! process_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        type ProcessLocalType = $ty;
         #[allow(non_snake_case)]
         mod $name {
             extern "C" {
                 #[link_name = stringify!($name)]
                 #[allow(improper_ctypes)]
-                pub(super) static KEY: super::ProcessLocalType;
+                pub(super) static KEY: $ty;
             }
         }
-        $vis static $name: $crate::MakeExternStaticSafe<$ty> = $crate::MakeExternStaticSafe(unsafe { &$name::KEY });
+
+        $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &$name::KEY });
     }
 }
 
@@ -303,8 +301,18 @@ crate::thread_local! {
     };
 }
 
+crate::thread_local! {
+    static RUBICON_TL_SAMPLE2: RubiconSample = RubiconSample {
+        contents: Arc::new(123),
+    };
+}
+
 crate::process_local! {
     static RUBICON_PL_SAMPLE: AtomicU64 = AtomicU64::new(123);
+}
+
+crate::process_local! {
+    static RUBICON_PL_SAMPLE2: AtomicU64 = AtomicU64::new(456);
 }
 
 pub fn world_goes_round() {
@@ -313,5 +321,10 @@ pub fn world_goes_round() {
         let contents = s.contents.clone();
         println!("contents: {}", contents);
     });
+    RUBICON_TL_SAMPLE2.with(|s| {
+        let contents = s.contents.clone();
+        println!("contents: {}", contents);
+    });
     RUBICON_PL_SAMPLE.fetch_add(1, Ordering::Relaxed);
+    RUBICON_PL_SAMPLE2.fetch_add(1, Ordering::Relaxed);
 }

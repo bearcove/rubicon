@@ -22,12 +22,37 @@ macro_rules! thread_local {
     };
 
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        ::std::thread_local! {
-            $(#[$attrs])*
-            #[no_mangle]
-            $vis static $name: $ty = $expr;
+    ::std::thread_local! {
+        $(#[$attrs])*
+        $vis static $name: $ty = $expr;
+    }
+
+    #[allow(non_snake_case)]
+    mod $name {
+        struct Rust1_79LocalKeyLayout<T: 'static> {
+            inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
         }
-    };
+
+        #[no_mangle]
+        #[used]
+        static $name: Rust1_79LocalKeyLayout<()> = Rust1_79LocalKeyLayout {
+            inner: |v| {
+                unsafe {
+                    // pretty weak guarantee but oh well
+                    assert_eq!(
+                        ::std::mem::size_of::<std::thread::LocalKey<()>>(),
+                        ::std::mem::size_of::<Rust1_79LocalKeyLayout<()>>()
+                    );
+
+                    // we don't have `$ty` in this scope, so we can't put the proper annotations
+                    #[allow(clippy::missing_transmute_annotations)]
+                    let lk = ::std::mem::transmute::<_, Rust1_79LocalKeyLayout<()>>(super::$name);
+                    (lk.inner)(v)
+                }
+            }
+        };
+    }
+};
 }
 
 #[cfg(feature = "import-globals")]
@@ -43,28 +68,27 @@ macro_rules! thread_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
         #[allow(non_snake_case)]
         mod $name {
-            pub(super) struct Rust1_79LocalKeyLayout<T: 'static> {
-                pub(super) inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
-            }
-
             extern "C" {
                 #[link_name = stringify!($name)]
                 #[allow(improper_ctypes)]
-                pub(super) static KEY: Rust1_79LocalKeyLayout<()>;
+                pub(super) static KEY: ::std::thread::LocalKey<()>;
+            }
+
+            pub(super) struct MakeExternStaticSafe<T: 'static>(pub(super) &'static T);
+
+            use std::ops::Deref;
+
+            impl<T> Deref for MakeExternStaticSafe<T> {
+                type Target = T;
+                fn deref(&self) -> &Self::Target {
+                    &self.0
+                }
             }
         }
 
-        $vis static $name: ::std::thread::LocalKey<$ty> = unsafe {
-            type Layout = $name::Rust1_79LocalKeyLayout<()>;
-            let lk = Layout {
-                inner: |v| {
-                    #[allow(clippy::missing_transmute_annotations)]
-                    let lk =  std::mem::transmute::<_, &Layout>(&$name::KEY);
-                    (lk.inner)(v)
-                }
-            };
-            ::std::mem::transmute(lk)
-        };
+        $vis static $name: $name::MakeExternStaticSafe<::std::thread::LocalKey<$ty>> = $name::MakeExternStaticSafe(
+            unsafe { std::mem::transmute::<&std::thread::LocalKey<()>, &::std::thread::LocalKey<$ty>>(&$name::KEY) }
+        );
     };
 }
 

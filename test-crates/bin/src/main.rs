@@ -72,11 +72,6 @@ fn main() {
     let init_b: libloading::Symbol<unsafe extern "C" fn()> = unsafe { lib_b.get(b"init").unwrap() };
     let init_b = Box::leak(Box::new(init_b));
 
-    soprintln!("DANGEROUS is now {}", unsafe {
-        mokio::DANGEROUS += 1;
-        mokio::DANGEROUS
-    });
-
     soprintln!(
         "PL1 = {}, TL1 = {} (initial)",
         mokio::MOKIO_PL1.load(Ordering::Relaxed),
@@ -153,6 +148,6 @@ fn main() {
     // 2 per turn, 2 turns on the main thread, 2 turns on each of the 3 worker threads: 16 total
     assert_eq!(mokio::MOKIO_PL1.load(Ordering::Relaxed), 16);
 
-    // DANGEROUS should be between 1 and 20
-    assert!(unsafe { mokio::DANGEROUS } >= 1 && unsafe { mokio::DANGEROUS } <= 20);
+    // same for DANGEROUS, it's just guarded by a mutex internally
+    assert_eq!(mokio::get_dangerous(), 16);
 }

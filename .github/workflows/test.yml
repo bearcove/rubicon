@@ -22,4 +22,12 @@ jobs:
           profile: minimal
           override: true
       - name: Run cargo command
-        run: cargo run --manifest-path test-crates/bin/Cargo.toml
+        run: |
+          cargo run --manifest-path test-crates/bin/Cargo.toml
+      - name: Run cargo command (release)
+        run: |
+          cargo run --manifest-path test-crates/bin/Cargo.toml --release
+      - name: Run cargo command (release with SOPRINTLN=1)
+        run: |
+          export SOPRINTLN=1
+          cargo run --manifest-path test-crates/bin/Cargo.toml --release

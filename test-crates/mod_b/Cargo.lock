@@ -3,6 +3,14 @@
 version = 3
 
 [[package]]
+name = "mod_b"
+version = "0.1.0"
+dependencies = [
+ "mokio",
+ "rubicon",
+]
+
+[[package]]
 name = "mokio"
 version = "0.1.0"
 dependencies = [

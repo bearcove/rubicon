@@ -1,14 +1,11 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+use std::sync::atomic::AtomicU64;
+
+rubicon::process_local! {
+    pub static MOKIO_PL1: AtomicU64 = AtomicU64::new(12);
+    pub static MOKIO_PL2: AtomicU64 = AtomicU64::new(23);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+rubicon::thread_local! {
+    pub static MOKIO_TL1: AtomicU64 = AtomicU64::new(12);
+    pub static MOKIO_TL2: AtomicU64 = AtomicU64::new(23);
 }

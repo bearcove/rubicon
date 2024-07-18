@@ -290,117 +290,114 @@ copy of `tracing`, they also have their own `GLOBAL_DISPATCH` process-local.
 It doesn't matter to `mod_a` if we've registered a global dispatcher from the app:
 according to `mod_a`'s copy of `GLOBAL_DISPATH` — there's no subscriber!
 
----
+There's only one fix for this: everyone must share the same `GLOBAL_DISPATCH`:
+it must be exported from `app`, and imported from all its modules.
 
-rubicon lets those crates expose cargo features to either export or import:
+## Global symbol commerce
 
-  * thread-locals
-  * process-locals (commonly called "statics" in Rust)
+In a perfect world, there'd be a rustc flag like `-C globals-linkage=[import,export]`:
+we'd set it to `export` for our app, so that it would declare those as exported symbols,
+the kind you can look up with [dlsym][], and that dynamic libraries you load later can
+use, because they're part of the set of symbols the dynamic linker-loader searches.
 
-This takes care of problem #1, which is: make sure our thread-copy "singleton" actually only
-exists once at runtime.
+[dlsym]: https://man7.org/linux/man-pages/man3/dlsym.3.html
 
-Problem #2 is still on you, specifically: YOU MUST MAKE SURE THE ABI MATCHES. That means using
-the exact same version of the compiler. It also means making sure that every copy of `tokio`,
-or `tracing-subscriber`, or whatever, has the EXACT SAME SET OF FEATURES ENABLED.
+There are, however, two roadblocks we must hop.
 
-This is trickier than it sounds — you can't just have a `tokio-wrapper` crate of your own with
-the features you need — any of your transitive dependencies (from the main app / any of its modules)
-can sneakily enable an extra tokio feature. Cargo features are additive and there's no way to
-denylist them.
+The first is that dynamic symbols are not exported for executables. Luckily, there's
+a linker flag for that: `-rdynamic` (also known as `--export-dynamic`).
 
-## Adding rubicon to your crate
+The second is that _there is no such rustc flag at all_.
 
-Okay, so you have a crate like `tokio` or `tracing-subscriber` that everyone uses, and you'd like
-to cater to the needs of rubicon-crossers such as myself. What should you do?
+Export a static is easy enough. Instead of:
 
-### 1. Add an unconditional dependency on rubicon
-
-As simple as `cargo add rubicon` — it has zero dependencies and is < 100 lines of code.
-
-It just exports one declarative macro.
-
-### 2. Add cargo features
-
-Add features "import-globals" and "export-globals", and forward them to "rubicon".
-
-```toml
-# in Cargo.toml
-
-[features]
-# (cut: existing features)
-import-globals = ["rubicon/import-globals"]
-export-globals = ["rubicon/export-globals"]
+```rust
+static MERCHANDISE: u64 = 42;
 ```
 
-Important notes:
+We can do:
 
-  * rubicon will trigger a compile error if both of these are enabled at the same time.
-  * DO NOT MAKE EITHER OF THESE DEFAULT
-  * "not enabling either" simply forwards to `std::thread_local!` which is the only
-    safe thing to do anyway and most users should want.
-
-### 3. Use `rubicon::thread_local!`
-
-...instead of `std::thread_local!`.
-
-### 4. Consider making `{import,export}-globals` trigger your `full` feature
-
-To _help ensure_ that the ABIs match. You'll trade users complaining about random
-failed asserts / segmentation faults / bus errors / various other kinds of memory corruption,
-for users complaining that the build is too big. Well, buddy, none of us should be
-here, and yet here we are.
-
-So, here's my recommended scheme:
-
-```toml
-# in Cargo.toml
-
-[features]
-default = ["foo"]
-full = ["foo", "bar", "baz"]
-# (cut: existing features)
-import-globals = ["full", "rubicon/import-globals"]
-export-globals = ["full", "rubicon/export-globals"]
+```rust
+#[used]
+static MERCHANDISE: u64 = 42;
 ```
 
-## Using a rubicon-powered crate
+And we'll get a mangled symbol:
 
-First off: don't. You'll be sorry.
+```shell
+❯ cargo build --quiet
+❯ nm -gp ./target/debug/librubicon.dylib | grep MERCHANDISE
+00000000000099f0 S __ZN7rubicon11MERCHANDISE17h03e39e78778de1fdE
+```
 
-If you must:
+The `#[no_mangle]` attribute implies `#[used]`, and also
+disables name mangling:
 
-  * Make a crate named `rubicon-exports` with `crate-type = ["dylib"]` (NOT CDYLIB)
-  * Have it depend on `tokio`, `tracing-subscriber`, etc.: whatever your crates depend on, and enable the `export-globals` features
-  * In its `src/lib.rs`, don't forget `use tokio as  _`, etc., otherwise
-  shit will get tree-shook
-  * Have your main crate depend on `rubicon-exports`
-  * In its `src/main.rs`, don't forget to `use rubicon_exports as _`, otherwise
-  shit will get dead-code-eliminated
-  * In all your "cdylib" crates (your modules/plugins/etc.), enable the `import-globals` feature on `tokio`, `tracing-subscriber`, etc.
-  * For all those crates, you'll need to pass the `-undefined dynamic_lookup`
-    linker option, or something equivalent (look at this repo's `.cargo/config.toml` for inspiration).
+```rust
+#[no_mangle]
+static MERCHANDISE: u64 = 42;
+```
 
-## FAQ
+```shell
+❯ cargo build --quiet
+❯ nm -gp ./target/debug/librubicon.dylib | grep MERCHANDISE
+00000000000099f0 S _MERCHANDISE
+```
 
-### Is this safe?
+(Just ignore the `_` prefix — linkers are cute like that.)
 
-God no. Prepare for fun stack traces (if you get stack traces at all).
+In fact, we can even specify our own export name if we want:
 
-### Doesn't `crate-type = ["dylib"]` fix all this?
+```rust
+#[export_name = "STILL_MERCHANDISE"]
+static PINK_UNICORN: u64 = 42;
+```
 
-Yes but no, because then you have a single crate graph and everything takes forever% CPU/RAM, which is what we're trying to avoid. The whole point of splitting your app into binary + several cdylibs (load-bearing "c") is that they are separate crate graphs, you can rust-analyze them fully independently, build them with full concurrency in CI (compute is cheap, waiting for the linker is not), and as long as you rebuild everything when you bump your rustc version you _should_ be okay.
+```shell
+❯ cargo build --quiet
+❯ nm -gp ./target/debug/librubicon.dylib | grep MERCHANDISE
+00000000000099f0 S _STILL_MERCHANDISE
+```
 
-### Can't we just have all shared objects share a single "libtokio.so"?
+However, when importing, there is no way to opt into mangling.
 
-No, because monomorphization: if you have an app and modules A through C, there's 4 versions of `libtokio.so`, none of which have all the "generic instantiations" you need. The only way to get _all the instantiations_ you need would be to depend onthe app AND all its modules, creating a single ginormous crate graph again, which defeats
-the whole point.
+We can either import it as-is, without mangling:
 
-### What about LTO / the runtime cost of dynamic linking?
+```rust
+extern "C" {
+    static MERCHANDISE: u64;
+}
 
-Yeah sorry, no LTO, obviously, and yes, dynamic linking has a cost. No
-cross-object inlining. That's the deal.
+// (only here to force the linker to import MERCHANDISE)
+#[used]
+static MERCHANDISE_ADDR: &u64 = unsafe { &MERCHANDISE };
+```
 
-### Should I use this in production?
+```shell
+# needed to avoid link errors: `MERCHANDISE` is not present at link time, it's
+# only expected to be present at load time.
+❯ export RUSTFLAGS="-Clink-arg=-undefined -Clink-arg=dynamic_lookup"
 
-You shouldn't, but I'm gonna.
+❯ cargo build --quiet
+❯ nm -gp ./target/debug/librubicon.dylib | grep MERCHANDISE
+00000000000e0210 S __ZN7rubicon16MERCHANDISE_ADDR17h2755f244419dcf79E
+                 U _MERCHANDISE
+```
+
+Or we can specify a `link_name` explicitly:
+
+```rust
+extern "C" {
+    #[link_name = "STILL_MERCHANDISE"]
+    static MERCHANDISE: u64;
+}
+
+// (only here to force the linker to import MERCHANDISE)
+#[used]
+static MERCHANDISE_ADDR: &u64 = unsafe { &MERCHANDISE };
+```
+
+```shell
+00000000000e0210 S __ZN7rubicon16MERCHANDISE_ADDR17h2755f244419dcf79E
+                 U _STILL_MERCHANDISE
+```

@@ -66,7 +66,6 @@ macro_rules! thread_local {
 
 #[cfg(feature = "export-globals")]
 #[macro_export]
-#[allow_internal_unstable(thread_local_internals)]
 macro_rules! thread_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
@@ -433,6 +432,15 @@ crate::process_local! {
     static RUBICON_PL_SAMPLE3: AtomicU64 = AtomicU64::new(34);
     static RUBICON_PL_SAMPLE4: AtomicU64 = AtomicU64::new(45);
 }
+
+extern "C" {
+    #[link_name = "STILL_MERCHANDISE"]
+    static MERCHANDISE: u64;
+}
+
+// (only here to force the linker to import MERCHANDISE)
+#[used]
+static MERCHANDISE_ADDR: &u64 = unsafe { &MERCHANDISE };
 
 pub fn world_goes_round() {
     crate::soprintln!("hi");

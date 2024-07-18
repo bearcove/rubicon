@@ -14,6 +14,9 @@ pub struct TrustedExtern<T: 'static>(pub &'static T);
 
 /// A struct with the same layout as `std::thread::LocalKey<T>`
 /// as of Rust 1.79, but with a public inner field
+///
+/// If this gets out of sync with the layout of `std::thread::LocalKey<T>`,
+/// then UB will happen.
 pub struct LocalKeyAbi<T: 'static> {
     pub inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
 }
@@ -63,10 +66,14 @@ macro_rules! thread_local {
 
 #[cfg(feature = "export-globals")]
 #[macro_export]
+#[allow_internal_unstable(thread_local_internals)]
 macro_rules! thread_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
-            // regular thread-local macro
+            // regular thread-local macro, not exported.
+            //
+            // I'd love to use `#[no_mangle]` here, but the std thread-local macro
+            // doesn't relay it?
             ::std::thread_local! {
                 $(#[$attrs])*
                 $vis static $name: $ty = $expr;
@@ -77,6 +84,9 @@ macro_rules! thread_local_inner {
             //
             // the internals of thread-locals are not stable, so we can't
             // use `::std::thred::LocalKey` directly.
+            //
+            // using `#[allow_internal_unstable(thread_local_internals)]`
+            // would make this crate nightly-only.
             #[no_mangle]
             static [<$name __rubicon_export>]: $crate::LocalKeyAbi<$ty> = $crate::LocalKeyAbi {
                 inner: |v| {

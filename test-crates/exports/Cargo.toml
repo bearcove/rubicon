@@ -1,0 +1,10 @@
+[package]
+name = "exports"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+mokio = { version = "0.1.0", path = "../mokio", features = ["export-globals"] }

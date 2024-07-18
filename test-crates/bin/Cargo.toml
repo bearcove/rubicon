@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+exports = { version = "0.1.0", path = "../exports" }
 libloading = "0.8.4"
-mokio = { version = "0.1.0", path = "../mokio", features = ["export-globals"] }
-rubicon = { version = "2.0.0", path = "../../rubicon", features = ["soprintln"] }
+rubicon = { version = "2.0.0", path = "../../rubicon", features = [
+    "soprintln",
+] }

@@ -237,7 +237,7 @@ or that are instantiated the exact same way in each independent depgraph.
 There will be a copy of each of these in the application executable AND in each
 `libmod_etc.dylib` file. That's unavoidable for now.
 
-## Duplicating globals isn't okay
+## Duplicating globals is never okay
 
 Now that we've made our peace with the fact there _will_ be code duplication, and
 that, as long as that code EXACTLY MATCHES across different copies, it's okay,
@@ -248,6 +248,24 @@ In particular, by globals, we mean:
   * thread-locals (declared via the [std::thread_local!][] macro)
   * process-locals (more commonly called "statics", declared via the [static keyword][])
 
+```rust
+static sample_process_local: AtomicU64 = AtomicU64::new(0);
+
+std::thread_local! {
+    static sample_thread_local: u64 = 42;
+}
+
+fn blah() {
+    let sample_local = 42;
+}
+```
+
+| kind                 | process-local | thread-local | local  |
+|----------------------|---------------|--------------|--------|
+| unique per scope     |      ❌       |      ❌      |   ✅   |
+| unique per thread    |      ❌       |      ✅      |   ✅   |
+| unique per process   |      ✅       |      ✅      |   ✅   |
+
 [std::thread_local!]: https://doc.rust-lang.org/std/macro.thread_local.html
 [static keyword]: https://doc.rust-lang.org/reference/items/static-items.html
 
@@ -255,15 +273,22 @@ Take `tracing`, for example: it lets you emit "events" that a "subscriber" can p
 It's used for structured logging: the event could be of level INFO and include information
 about some HTTP request, for example.
 
-`tracing` allows registering a "global" dispatcher, through [tracing::dispatcher::set_global_default][]https://docs.rs/tracing/latest/tracing/dispatcher/fn.set_global_default.html
+`tracing` allows registering a "global" dispatcher, through [tracing::dispatcher::set_global_default][].
+This sets a process-global:
 
 [tracing::dispatcher::set_global_default]: https://docs.rs/tracing/latest/tracing/dispatcher/fn.set_global_default.html
 
-Internally, this function will set a static (a "process-local", in rubicon terms):
-
 ```rust
-
+static mut GLOBAL_DISPATCH: Dispatch = Dispatch {
+    subscriber: Kind::Global(&NO_SUBSCRIBER),
+};
 ```
+
+The problem is that, since all targets (the app, all its modules) have their own
+copy of `tracing`, they also have their own `GLOBAL_DISPATCH` process-local.
+
+It doesn't matter to `mod_a` if we've registered a global dispatcher from the app:
+according to `mod_a`'s copy of `GLOBAL_DISPATH` — there's no subscriber!
 
 ---
 

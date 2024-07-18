@@ -21,10 +21,15 @@ fn main() {
     for module in modules {
         soprintln!("building {module}");
 
-        #[cfg(target_os = "macos")]
-        let rustflags = "-Clink-arg=-undefined -Clink-arg=dynamic_lookup";
-        #[cfg(not(target_os = "macos"))]
-        let rustflags = "";
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "macos")] {
+                let rustflags = "-Clink-arg=-undefined -Clink-arg=dynamic_lookup";
+            } else if #[cfg(target_os = "windows")] {
+                let rustflags = "-Clink-arg=/FORCE:UNRESOLVED";
+            } else {
+                let rustflags = "";
+            }
+        }
 
         let output = std::process::Command::new("cargo")
             .arg("b")

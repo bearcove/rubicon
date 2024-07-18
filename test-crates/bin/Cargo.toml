@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+cfg-if = "1.0.0"
 exports = { version = "0.1.0", path = "../exports" }
 libloading = "0.8.4"
 rubicon = { path = "../../rubicon" }

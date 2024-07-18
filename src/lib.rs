@@ -12,6 +12,12 @@ use std::sync::Arc;
 /// static. That error is there for a reason, but we're doing crimes.
 pub struct TrustedExtern<T: 'static>(pub &'static T);
 
+/// A struct with the same layout as `std::thread::LocalKey<T>`
+/// as of Rust 1.79, but with a public inner field
+pub struct LocalKeyAbi<T: 'static> {
+    pub inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
+}
+
 use std::ops::Deref;
 
 impl<T> Deref for TrustedExtern<T> {
@@ -42,31 +48,21 @@ macro_rules! thread_local {
     };
 
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        ::std::thread_local! {
-            $(#[$attrs])*
-            $vis static $name: $ty = $expr;
-        }
-
-        #[allow(non_snake_case)]
-        mod $name {
-            struct Rust1_79LocalKeyLayout<T: 'static> {
-                inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
+        $crate::paste! {
+            // regular thread-local macro
+            ::std::thread_local! {
+                $(#[$attrs])*
+                $vis static $name: $ty = $expr;
             }
 
             #[no_mangle]
-            #[used]
-            static $name: Rust1_79LocalKeyLayout<()> = Rust1_79LocalKeyLayout {
+            static [<$name __rubicon_export>]: $crate::LocalKeyAbi<$ty> = $crate::LocalKeyAbi {
                 inner: |v| {
                     unsafe {
-                        // pretty weak guarantee but oh well
-                        assert_eq!(
-                            ::std::mem::size_of::<std::thread::LocalKey<()>>(),
-                            ::std::mem::size_of::<Rust1_79LocalKeyLayout<()>>()
-                        );
-
-                        // we don't have `$ty` in this scope, so we can't put the proper annotations
-                        #[allow(clippy::missing_transmute_annotations)]
-                        let lk = ::std::mem::transmute::<_, Rust1_79LocalKeyLayout<()>>(super::$name);
+                        use $crate::LocalKeyAbi;
+                        use ::std::thread::LocalKey;
+                        use ::std::mem::transmute;
+                        let lk = transmute::<&LocalKey<$ty>, &LocalKeyAbi<$ty>>(&$name);
                         (lk.inner)(v)
                     }
                 }
@@ -87,19 +83,13 @@ macro_rules! thread_local {
 
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
         $crate::paste! {
-            #[allow(non_camel_case_types)]
-            type [<$name:upper _KEY>] = ::std::thread::LocalKey<$ty>;
-
-            #[allow(non_snake_case)]
-            mod $name {
-                extern "C" {
-                    #[link_name = stringify!($name)]
-                    #[allow(improper_ctypes)]
-                    pub(super) static KEY: super::[<$name:upper _KEY>];
-                }
+            extern "C" {
+                #[link_name = stringify!($name)]
+                #[allow(improper_ctypes)]
+                static [<$name __rubicon_import>]: ::std::thread::LocalKey<$ty>;
             }
 
-            $vis static $name: $crate::TrustedExtern<::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &$name::KEY });
+            $vis static $name: $crate::TrustedExtern<::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
         }
     };
 }
@@ -121,19 +111,13 @@ macro_rules! process_local {
 macro_rules! process_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
         $crate::paste! {
-            #[allow(non_camel_case_types)]
-            type [<$name:upper _KEY>] = $ty;
-
-            #[allow(non_snake_case)]
-            mod $name {
-                extern "C" {
-                    #[link_name = stringify!($name)]
-                    #[allow(improper_ctypes)]
-                    pub(super) static KEY: super::[<$name:upper _KEY>];
-                }
+            extern "C" {
+                #[link_name = stringify!($name)]
+                #[allow(improper_ctypes)]
+                static [<$name __rubicon_import>]: $ty;
             }
 
-            $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &$name::KEY });
+            $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
         }
     }
 }

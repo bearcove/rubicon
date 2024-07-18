@@ -120,11 +120,23 @@ macro_rules! process_local {
         $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
     };
 
+    // single declaration (mut)
+    ($(#[$attrs:meta])* $vis:vis static mut $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        $crate::process_local_inner_mut!($(#[$attrs])* $vis $name, $ty, $expr);
+    };
+
+
     // handle multiple declarations
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr; $($rest:tt)*) => {
         $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
         $crate::process_local!($($rest)*);
     };
+
+    // handle multiple declarations
+    ($(#[$attrs:meta])* $vis:vis static mut $name:ident: $ty:ty = $expr:expr; $($rest:tt)*) => {
+        $crate::process_local_inner_mut!($(#[$attrs])* $vis $name, $ty, $expr);
+        $crate::process_local!($($rest)*);
+    }
 }
 
 #[cfg(feature = "export-globals")]
@@ -132,11 +144,21 @@ macro_rules! process_local {
 macro_rules! process_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
-            // we _could_ export with a mangled name, but we couldn't
-            // import with a mangled name (extern disables mangling)
             #[export_name = stringify!([<$name __rubicon_export>])]
             $(#[$attrs])*
             $vis static $name: $ty = $expr;
+        }
+    };
+}
+
+#[cfg(feature = "export-globals")]
+#[macro_export]
+macro_rules! process_local_inner_mut {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
+        $crate::paste! {
+            #[export_name = stringify!([<$name __rubicon_export>])]
+            $(#[$attrs])*
+            $vis static mut $name: $ty = $expr;
         }
     };
 }
@@ -153,6 +175,22 @@ macro_rules! process_local_inner {
             }
 
             $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
+        }
+    };
+}
+
+#[cfg(feature = "import-globals")]
+#[macro_export]
+macro_rules! process_local_inner_mut {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
+        $crate::paste! {
+            // externs require "unsafe" to access, but so do "static mut", so,
+            // no need to wrap in `TrustedExtern`
+            extern "Rust" {
+                #[link_name = stringify!([<$name __rubicon_export>])]
+                #[allow(improper_ctypes)]
+                $vis static mut $name: $ty;
+            }
         }
     };
 }

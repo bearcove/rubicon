@@ -1,8 +1,21 @@
+use std::sync::atomic::Ordering;
+
 use exports::{self as _, mokio};
 use rubicon::soprintln;
 
 fn main() {
     std::env::set_var("SO_PRINTLN", "1");
+
+    let exe_path = std::env::current_exe().expect("Failed to get current exe path");
+    let project_root = exe_path
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    std::env::set_current_dir(project_root).expect("Failed to change directory");
+
     soprintln!("app starting up...");
 
     let modules = ["../mod_a", "../mod_b"];
@@ -37,6 +50,11 @@ fn main() {
     let lib_b = Box::leak(Box::new(lib_b));
     let init_b: libloading::Symbol<unsafe extern "C" fn()> = unsafe { lib_b.get(b"init").unwrap() };
     let init_b = Box::leak(Box::new(init_b));
+
+    soprintln!("DANGEROUS is now {}", unsafe {
+        mokio::DANGEROUS += 1;
+        mokio::DANGEROUS
+    });
 
     soprintln!(
         "PL1 = {}, TL1 = {} (initial)",
@@ -95,6 +113,9 @@ fn main() {
                     );
                 }
 
+                // TL1 should be 4 (incremented by each `init_X()` call)
+                assert_eq!(mokio::MOKIO_TL1.with(|s| s.load(Ordering::Relaxed)), 4);
+
                 id
             })
             .unwrap();
@@ -106,4 +127,11 @@ fn main() {
         let id = jh.join().unwrap();
         soprintln!("thread {} joined", id);
     }
+
+    // PL1 should be exactly 16
+    // 2 per turn, 2 turns on the main thread, 2 turns on each of the 3 worker threads: 16 total
+    assert_eq!(mokio::MOKIO_PL1.load(Ordering::Relaxed), 16);
+
+    // DANGEROUS should be between 1 and 20
+    assert!(unsafe { mokio::DANGEROUS } >= 1 && unsafe { mokio::DANGEROUS } <= 20);
 }

@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicU64;
 rubicon::process_local! {
     pub static MOKIO_PL1: AtomicU64 = AtomicU64::new(0);
     pub static MOKIO_PL2: AtomicU64 = AtomicU64::new(0);
+    pub static mut DANGEROUS: u64 = 0;
 }
 
 rubicon::thread_local! {

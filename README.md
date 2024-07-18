@@ -420,7 +420,7 @@ collision between the unmangled globals of various crates in the dependency grap
 which means, that's right, we're back to manually prefixing things, like in C.
 
 We've just covered process-locals. The situation for thread-locals is much the
-same, except we have to do some more trickG*ery because the internals of `LocalKey`
+same, except we have to do some more trickery because the internals of `LocalKey`
 are, well, internal, and cannot be accessed from stable Rust.
 
 Getting all these just right is tricky — that's why `rubicon` ships macros, which

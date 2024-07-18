@@ -417,3 +417,11 @@ which means, that's right, we're back to manually prefixing things, like in C.
 We've just covered process-locals. The situation for thread-locals is much the
 same, except we have to do some more trickery because the internals of `LocalKey`
 are, well, internal, and cannot be accessed from stable Rust.
+
+Getting all these just right is tricky — that's why `rubicon` ships macros, which
+are meant to be used by any crate that has global state, such as `tokio`, `tracing`,
+`parking_lot`, etc.
+
+## Adding rubicon support to a crate
+
+Let's take tokio as an example. First, we'll want to

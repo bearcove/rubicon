@@ -3,6 +3,9 @@
 check:
     cargo hack --each-feature --exclude-all-features clippy
 
+test:
+    cargo run --manifest-path test-crates/bin/Cargo.toml
+
 build:
     #!/usr/bin/env bash -eux
     cd rubicon

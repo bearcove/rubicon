@@ -6,7 +6,7 @@ authors = ["Amos Wenger <amos@bearcove.net>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/bearcove/rubicon"
-description = "A way to export/import thread-locals from/to shared objects"
+description = "Deduplicate globals across shared objects to enable a dangerous form of dynamic linking"
 categories = ["development-tools::ffi"]
 keywords = ["ffi", "thread-local"]
 
@@ -14,10 +14,10 @@ keywords = ["ffi", "thread-local"]
 crate-type = ["dylib"]
 
 [dependencies]
-paste = "1.0.15"
+paste = { version = "1.0.15", optional = true }
 
 [features]
 default = []
-export-globals = []
-import-globals = []
+export-globals = ["dep:paste"]
+import-globals = ["dep:paste"]
 soprintln = []

@@ -20,12 +20,15 @@ fn main() {
     let modules = ["../mod_a", "../mod_b"];
     for module in modules {
         soprintln!("building {module}");
+
+        #[cfg(target_os = "macos")]
+        let rustflags = "-Clink-arg=-undefined -Clink-arg=dynamic_lookup";
+        #[cfg(not(target_os = "macos"))]
+        let rustflags = "";
+
         let output = std::process::Command::new("cargo")
             .arg("b")
-            .env(
-                "RUSTFLAGS",
-                "-Clink-arg=-undefined -Clink-arg=dynamic_lookup",
-            )
+            .env("RUSTFLAGS", rustflags)
             .current_dir(module)
             .output()
             .expect("Failed to execute cargo build");
@@ -39,15 +42,32 @@ fn main() {
         }
     }
 
+    fn module_path(name: &str) -> String {
+        #[cfg(target_os = "windows")]
+        let prefix = "";
+        #[cfg(not(target_os = "windows"))]
+        let prefix = "lib";
+
+        #[cfg(target_os = "windows")]
+        let extension = "dll";
+        #[cfg(target_os = "macos")]
+        let extension = "dylib";
+        #[cfg(target_os = "linux")]
+        let extension = "so";
+
+        format!(
+            "../mod_{}/target/debug/{}mod_{}.{}",
+            name, prefix, name, extension
+        )
+    }
+
     soprintln!("loading modules...");
-    let lib_a =
-        unsafe { libloading::Library::new("../mod_a/target/debug/libmod_a.dylib").unwrap() };
+    let lib_a = unsafe { libloading::Library::new(module_path("a")).unwrap() };
     let lib_a = Box::leak(Box::new(lib_a));
     let init_a: libloading::Symbol<unsafe extern "C" fn()> = unsafe { lib_a.get(b"init").unwrap() };
     let init_a = Box::leak(Box::new(init_a));
 
-    let lib_b =
-        unsafe { libloading::Library::new("../mod_b/target/debug/libmod_b.dylib").unwrap() };
+    let lib_b = unsafe { libloading::Library::new(module_path("b")).unwrap() };
     let lib_b = Box::leak(Box::new(lib_b));
     let init_b: libloading::Symbol<unsafe extern "C" fn()> = unsafe { lib_b.get(b"init").unwrap() };
     let init_b = Box::leak(Box::new(init_b));

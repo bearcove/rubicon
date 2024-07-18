@@ -1,3 +1,35 @@
+//! rubicon enables a dangerous form of dynamic linking in Rust through cdylib crates
+//! and carefully-enforced invariants.
+//!
+//! This crate provides macros to handle global state (thread-locals and process-locals/statics)
+//! in a way that's compatible with the "xgraph" dynamic linking model, where multiple
+//! copies of the same crate can coexist in the same address space.
+//!
+//! The main macros provided are:
+//!
+//! - `thread_local!`: A drop-in replacement for `std::thread_local!`
+//! - `process_local!`: Used to declare statics (including `static mut`)
+//!
+//! These macros behave differently depending on whether the `export-globals` or
+//! `import-globals` feature is enabled:
+//!
+//! - With `export-globals`: Symbols are exported for use by dynamically loaded modules
+//! - With `import-globals`: Symbols are imported from the main executable
+//! - With neither: The macros act as pass-through to standard Rust constructs
+//!
+//! # Safety
+//!
+//! Using this crate requires careful adherence to several invariants:
+//!
+//! 1. Modules must never be unloaded, only loaded.
+//! 2. The exact same Rust compiler version must be used for the app and all modules.
+//! 3. The exact same cargo features must be enabled for shared dependencies.
+//!
+//! Failure to maintain these invariants can lead to undefined behavior.
+//!
+//! For more details on the motivation and implementation of the "xgraph" model,
+//! refer to the [crate's README and documentation](https://github.com/bearcove/rubicon?tab=readme-ov-file#rubicon).
+
 #[cfg(all(feature = "export-globals", feature = "import-globals"))]
 compile_error!("The features `export-globals` and `import-globals` are mutually exclusive, see https://github.com/bearcove/rubicon");
 

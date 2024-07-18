@@ -1,20 +1,217 @@
 # rubicon
 
-Webster's Dictionary defines 'rubicon' as: a bounding or limiting line.
-(especially : one that when crossed commits a person irrevocably).
+rubicon enables a dangerous form of dynamic linking in Rust through cdylib crates
+and carefully-enforced invariants.
 
-In this case, our rubicon is the boundary between shared objects
-(executables, dynamic libraries, etc.) that all include a copy of the same crate.
+## Name
 
-This can happen if you build an application as "one main binary" and "several modules",
-loaded at runtime — and the modules are of `crate-type = ["cdylib"]`, which means
-they are completely separate crate graphs than the application.
+Webster's Dictionary defines 'rubicon' as:
 
-Libraries like `tokio` and `tracing-subscriber` _really freak out_ if it
-turns out there's several copies of their thread-local variables — and who could blame them?
+  > a bounding or limiting line. especially: one that
+  > when crossed, commits a person irrevocably.
 
-rubicon lets those crates expose cargo features to export thread-locals (from the main binary)
-or import thread-locals (from modules).
+In this case, I see it as the limiting line between several shared objects,
+within the same address space, each including their own copy of the same Rust
+code.
+
+## Nomenclature
+
+Dynamic linking concepts have different names on different platforms:
+
+| Concept             | Linux               | macOS                    | Windows                                                              |
+|-------------------- | ------------------- | ------------------------ | -------------------------------------------------------------------- |
+| Shared library      | shared object       | dynamic library          | DLL (Dynamic Link Library)                                           |
+| Library file name   | `libfoo.so`         | `libfoo.dylib`           | `foo.dll`                                                            |
+| Library search path | `LD_LIBRARY_PATH`   | `DYLD_LIBRARY_PATH`      | `PATH`                                                               |
+| Preload mechanism   | `LD_PRELOAD`        | `DYLD_INSERT_LIBRARIES`  | [It's complicated](https://stackoverflow.com/a/5273439)              |
+
+Throughout this document, macOS naming conventions are preferred.
+
+## Motivation
+
+### Rust's dynamic linking model (`1graph`)
+
+(This section is up-to-date as of Rust 1.79 / 2024-07-18)
+
+cargo and rustc support some form of dynamic linking, through the
+[-C prefer-dynamic][prefer-dynamic] compiler flag.
+
+[prefer-dynamic]: https://doc.rust-lang.org/rustc/codegen-options/index.html#prefer-dynamic
+
+This flag will:
+
+  * Link against the pre-built `libstd-HASH.dylib`, shipped via rustup
+    (assuming you're not using `-Z build-std`)
+  * Try to link against `libfoobar.dylib`, for any crate `foobar` that
+    includes `dylib` in its `crate-type`
+
+rustc has an [internal algorithm][] to decide which linkage to use for which
+dependency. That algorithm is best-effort, and it can fail.
+
+[internal algorithm]: https://github.com/rust-lang/rust/blob/master/compiler/rustc_metadata/src/dependency_format.rs
+
+Regardless, it assumes that rustc has knowledge of the entire dependency graph
+at link time.
+
+### rubicon's dynamic linking model (`xgraph`)
+
+However, one might want to split the dependency graph on purpose:
+
+| Strategy                     | 1graph (one dependency graph)                | xgraph (multiple dependency graphs)                                 |
+| ---------------------------- | -------------------------------------------- | ------------------------------------------------------------------- |
+| Module crate-type            | dylib                                        | cdylib                                                               |
+| Duplicates in address space  | No (rlib/dylib resolution at link time)      | Yes (by design)                                                      |
+| Who loads modules?           | the runtime linker                           | the app                                                              |
+| When loads modules?          | before main, unconditionally                 | any time (but don't unload)                                          |
+| How loads modules?           | `DT_NEEDED` / `LC_LOAD_DYLIB` etc.           | libdl, likely via [libloading](https://docs.rs/libloading/latest/libloading/) |
+
+Let's call Rust's "supported" dynamic linking model "1graph".
+
+rubicon enables (at your own risk), a different model, which we'll call "xgraph".
+
+In the "xgraph" model, every "module" of your application — anything that might make
+sense to build separately, like "a bunch of tree-sitter grammars", or "a whole JavaScript runtime",
+is its _own_ dependency graph, rooted at a crate with a `crate-type` of `cdylib`.
+
+In the "xgraph" model, your application's "shared object" (Linux executables, macOS executables,
+etc. are just shared objects — not too different from libraries, except they have an entry point)
+does not have any references to its modules — by the time `main()` is executed, none of the
+modules are loaded yet.
+
+Instead, modules are loaded explicitly through a crate like [libloading](https://lib.rs/crates/libloading),
+which under the hood, uses whatever facilities the platform's dynamic linker-loader exposes. This
+lets you choose which modules to load and when.
+
+### Linkage and discipline
+
+The "xgraph" model is dangerous — we must use discipline to get it to work at all.
+
+In particular, we'll maintain the following invariants:
+
+  * A. Modules are NEVER UNLOADED, only loaded.
+  * B. The EXACT SAME RUSTC VERSION is used to build the app and all modules
+  * C. The EXACT SAME CARGO FEATURES are enabled for crates that both the app
+       and some modules depend on.
+
+Unloading modules ("A") would break a significant assumption in all Rust programs: that `'static`
+lasts for the entirety of the program's execution. When unloading a module, we can make something
+`'static` disappear.
+
+Although nobody can stop you from unloading modules, what you're writing at this point is no longer
+safe Rust.
+
+Mixing rustc versions ("B") might result in differences in struct layouts, for example. For a struct like:
+
+```rust
+struct Blah {
+    a: u64,
+    b: u32,
+}
+```
+
+...there's no guarantee which field will be first, if there will be padding, what order the fields will
+be in. We pray that struct layouts match across the same compiler version, but even that might not be
+guaranteed? (citation needed)
+
+Mixing cargo feature sets ("C") might, again, result in differences in struct layouts:
+
+```rust
+struct Blah {
+    #[cfg(feature = "foo")]
+    a: u64,
+    b: u32
+}
+
+// if the app has `foo` enabled, and we pass a &Blah` to
+// a module that doesn't have `foo` enabled, then the
+// layout won't match.
+```
+
+Or function signatures. Or the (duplicate) code being run at any time.
+
+### Duplicates are unavoidable in `xgraph`
+
+In the `1graph` model, rustc is able to see the entire dependency graph — as a
+result, it's able to avoid duplicates of a dependency altogether: if the app
+and some of its modules depend on `tokio`, then there'll be a single
+`libtokio.dylib` that they all depend on — no duplication whatsoever.
+
+In the `xgraph` model, we're unable to achieve that. By design, the app and all
+of its modules are built and linked in complete isolation. As long as they agree
+on a thin FFI (Foreign Function Interface) boundary, which might be provided by
+a "common" crate everyone depends on, they can be built.
+
+It is possible for the app and its modules to link dynamically against `tokio`:
+there will be, for each target (the app is a target, each module is a target),
+a `libtokio.dylib` file.
+
+However, that file will not have the same contents for each target, because `tokio`
+exposes generic functions.
+
+This code:
+
+```rust
+tokio::spawn(async move {
+    println!("Hello, world!");
+});
+```
+
+Will cause the `spawn` function to be monomorphized, turning from this:
+
+```rust
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output> ⓘ
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+```
+
+Into something like this (the mangling here is not realistic):
+
+```rust
+pub fn spawn__OpaqueType__FOO(future: OpaqueType__FOO) -> JoinHandle<()> ⓘ
+```
+
+If in another module, we have that code:
+
+```rust
+let jh = tokio::spawn(async move {
+    // make yourself wanted
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    println!("Oh hey, you're early!")"
+    42
+});
+let answer = jh.await.unwrap();
+```
+
+Then it will cause _another_ monomorphization of `tokio`'s `spawn` function,
+which might look something like this:
+
+```rust
+pub fn spawn__OpaqueType__BAR(future: OpaqueType__BAR) -> JoinHandle<i32> ⓘ
+```
+
+And now, you'll have:
+
+```
+bin/
+  app/
+    executable
+    libtokio.dylib
+      (exports spawn__OpaqueType__FOO)
+  mod_a/
+    libmod_a.dylib
+    libtokio.dylib
+      (export spawn__OpaqueType__BAR)
+```
+
+
+
+---
+
+rubicon lets those crates expose cargo features to either export or import:
+
+  * thread-locals
+  * process-locals (commonly called "statics" in Rust)
 
 This takes care of problem #1, which is: make sure our thread-copy "singleton" actually only
 exists once at runtime.
@@ -27,74 +224,6 @@ This is trickier than it sounds — you can't just have a `tokio-wrapper` crate 
 the features you need — any of your transitive dependencies (from the main app / any of its modules)
 can sneakily enable an extra tokio feature. Cargo features are additive and there's no way to
 denylist them.
-
-## How does it work?
-
-Well, it's only 100 lines of Rust, but there's high levels of
-fuckery in there, so I don't blame you for asking.
-
-Essentially _all we're trying to do_ is to export/import thread-locals,
-however:
-
-  * `std::thread_local!` is a macro, not some piece of syntax (unlike the
-    `#[thread_local]` attribute, which is unstable and has restrictions)
-  * You can't shove it in an `extern "C"` because using extern statics
-    requires unsafe blocks. That requires patching every use site of the
-    thread-local.
-  * You can't make it pub/`no_mangle` either (or choose a better, less cluttery
-    export name).
-  * Thread-local internals (`LocalKey` fields, the constructor) are
-    unstable/hidden by design
-  * `LocalKey` isn't `Clone` or `Copy` (even though all it carries in Rust 1.79
-    is the address of a function — not a closure, an `fn`)
-  * You can't initialize a `static` with the address of another one (since
-    its address is not known at compile time — the compiler is correct, this is
-    link-time fuckery).
-
-If you run `just build` you will see I got _something_ to work.
-
-```shell
-❯ just build
-======== Regular build ========
-cargo build
-   Compiling rubicon v0.1.0 (/Users/amos/bearcove/rubicon)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.34s
-nm target/debug/librubicon.dylib | grep RUBICON_SAMPLE
-00000000000033a8 t __ZN7rubicon14RUBICON_SAMPLE6__init17h7ca17d5c91e84836E
-00000000000033d4 t __ZN7rubicon14RUBICON_SAMPLE7__getit17ha51d95268314f0e3E
-00000000000032d0 t __ZN7rubicon14RUBICON_SAMPLE7__getit28_$u7b$$u7b$closure$u7d$$u7d$17h4fbd075560ca6b68E
-000000000000ddc8 s __ZN7rubicon14RUBICON_SAMPLE7__getit5__KEY17h58899a7072395bddE
-000000000000dde0 s __ZN7rubicon14RUBICON_SAMPLE7__getit5__KEY17h58899a7072395bddE$tlv$init
-
-======== Export globals ========
-cargo build --features export-globals
-   Compiling rubicon v0.1.0 (/Users/amos/bearcove/rubicon)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
-nm target/debug/librubicon.dylib | grep RUBICON_SAMPLE
-00000000000080a8 S _RUBICON_SAMPLE
-0000000000005ba0 T __ZN7rubicon14RUBICON_SAMPLE14RUBICON_SAMPLE28_$u7b$$u7b$closure$u7d$$u7d$17h8210afea3b744e51E
-0000000000002d9c t __ZN7rubicon14RUBICON_SAMPLE6__init17h40fdfd56886f5a1fE
-0000000000002dc8 t __ZN7rubicon14RUBICON_SAMPLE7__getit17had70f80de9afa53bE
-0000000000004b28 t __ZN7rubicon14RUBICON_SAMPLE7__getit28_$u7b$$u7b$closure$u7d$$u7d$17h3527ed6c8c4bd29fE
-000000000000f200 s __ZN7rubicon14RUBICON_SAMPLE7__getit5__KEY17h5e9ac340596c033bE
-000000000000f218 s __ZN7rubicon14RUBICON_SAMPLE7__getit5__KEY17h5e9ac340596c033bE$tlv$init
-
-======== Import globals ========
-cargo build --features import-globals
-   Compiling rubicon v0.1.0 (/Users/amos/bearcove/rubicon)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
-nm target/debug/librubicon.dylib | grep RUBICON_SAMPLE
-                 U _RUBICON_SAMPLE
-0000000000004090 s __ZN7rubicon14RUBICON_SAMPLE17h73a76804a859adb2E
-```
-
-The "regular" (neither import nor export) build doesn'thave any dynamic symbols,
-the "export" build has `S _RUBICON_SAMPLE`, and the "import" build has `U _RUBICON_SAMPLE`.
-
-To get the "import" build to build at all, I used `-undefined dynamic_lookup`,
-see `.cargo/config.toml` in this repository. This is a much bigger gun than
-needed, I'd much rather use weak linking or target those symbols specifically
-but for that we need to get cargo, the compiler, and the linker to cooperate.
 
 ## Adding rubicon to your crate
 

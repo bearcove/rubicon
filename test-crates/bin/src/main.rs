@@ -1,8 +1,9 @@
-use exports as _;
+use exports::{self as _, mokio};
+use rubicon::soprintln;
 
 fn main() {
     std::env::set_var("SO_PRINTLN", "1");
-    rubicon::soprintln!("app starting up...");
+    soprintln!("app starting up...");
 
     let modules = ["../mod_a", "../mod_b"];
     for module in modules {
@@ -37,12 +38,29 @@ fn main() {
     let init_b: libloading::Symbol<unsafe extern "C" fn()> = unsafe { lib_b.get(b"init").unwrap() };
     let init_b = Box::leak(Box::new(init_b));
 
-    unsafe { init_a() };
-    unsafe { init_b() };
-    unsafe { init_a() };
-    unsafe { init_b() };
+    soprintln!(
+        "PL1 = {}, TL1 = {} (initial)",
+        mokio::MOKIO_PL1.load(Ordering::Relaxed),
+        mokio::MOKIO_TL1.with(|s| s.load(Ordering::Relaxed)),
+    );
 
-    rubicon::soprintln!("now doing that in separate threads");
+    for _ in 0..2 {
+        unsafe { init_a() };
+        soprintln!(
+            "PL1 = {}, TL1 = {} (after init_a)",
+            mokio::MOKIO_PL1.load(Ordering::Relaxed),
+            mokio::MOKIO_TL1.with(|s| s.load(Ordering::Relaxed)),
+        );
+
+        unsafe { init_b() };
+        soprintln!(
+            "PL1 = {}, TL1 = {} (after init_b)",
+            mokio::MOKIO_PL1.load(Ordering::Relaxed),
+            mokio::MOKIO_TL1.with(|s| s.load(Ordering::Relaxed)),
+        );
+    }
+
+    soprintln!("now starting a couple threads");
 
     let mut join_handles = vec![];
     for id in 1..=3 {
@@ -53,12 +71,29 @@ fn main() {
         let jh = std::thread::Builder::new()
             .name(thread_name.clone())
             .spawn(move || {
-                rubicon::soprintln!("in a separate thread named: {}", thread_name);
+                soprintln!("in a separate thread named: {}", thread_name);
 
-                unsafe { init_a() };
-                unsafe { init_b() };
-                unsafe { init_a() };
-                unsafe { init_b() };
+                soprintln!(
+                    "PL1 = {}, TL1 = {} (initial)",
+                    mokio::MOKIO_PL1.load(Ordering::Relaxed),
+                    mokio::MOKIO_TL1.with(|s| s.load(Ordering::Relaxed)),
+                );
+
+                for _ in 0..2 {
+                    unsafe { init_a() };
+                    soprintln!(
+                        "PL1 = {}, TL1 = {} (after init_a)",
+                        mokio::MOKIO_PL1.load(Ordering::Relaxed),
+                        mokio::MOKIO_TL1.with(|s| s.load(Ordering::Relaxed)),
+                    );
+
+                    unsafe { init_b() };
+                    soprintln!(
+                        "PL1 = {}, TL1 = {} (after init_b)",
+                        mokio::MOKIO_PL1.load(Ordering::Relaxed),
+                        mokio::MOKIO_TL1.with(|s| s.load(Ordering::Relaxed)),
+                    );
+                }
 
                 id
             })
@@ -69,6 +104,6 @@ fn main() {
     // join all the threads
     for jh in join_handles {
         let id = jh.join().unwrap();
-        rubicon::soprintln!("thread {} joined", id);
+        soprintln!("thread {} joined", id);
     }
 }

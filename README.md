@@ -204,7 +204,66 @@ bin/
       (export spawn__OpaqueType__BAR)
 ```
 
+At this point, `executable` refers to its own `libtokio.dylib` (by absolute path),
+and `libmod_a.dylib`, to its own, separate, `libtokio.dylib`.
 
+Even if you were to edit the `DT_NEEDED` / `LC_LOAD_DYLIB` information to have the
+modules point to `executable`'s version of the dynamic libraries, you would find
+yourself with a "missing symbol" error at runtime!
+
+| libtokio.dylib from | Has __FOO | Has __BAR |
+|---------------------|-----------|-----------|
+|     executable      |     ✅    |     ❌    |
+|        mod_a        |     ❌    |     ✅    |
+
+None of the `libtokio.dylib` files you have contain all the symbols required.
+
+To make a `libtokio.dylib` file that contains ALL THE SYMBOLS required, you
+would need rustc to be aware of the whole dependency graph: hence, you'd be back
+to the `1graph` model.
+
+Hence, when using the `xgraph`, we accept the reality that code from dependencies
+_will_ be duplicated.
+
+| target | non-generic code | app generics | mod_a generics | mod_b generics |
+|--------|------------------|--------------|----------------|----------------|
+| app    |        ✅        |      ✅      |       ❌       |       ❌       |
+| mod_a  |        ✅        |      ❌      |       ✅       |       ❌       |
+| mod_b  |        ✅        |      ❌      |       ❌       |       ✅       |
+
+That first column corresponds to all functions, types, etc. that are not generic,
+or that are instantiated the exact same way in each independent depgraph.
+
+There will be a copy of each of these in the application executable AND in each
+`libmod_etc.dylib` file. That's unavoidable for now.
+
+## Duplicating globals isn't okay
+
+Now that we've made our peace with the fact there _will_ be code duplication, and
+that, as long as that code EXACTLY MATCHES across different copies, it's okay,
+we need to address the fact that duplicating globals isn't _never okay_.
+
+In particular, by globals, we mean:
+
+  * thread-locals (declared via the [std::thread_local!][] macro)
+  * process-locals (more commonly called "statics", declared via the [static keyword][])
+
+[std::thread_local!]: https://doc.rust-lang.org/std/macro.thread_local.html
+[static keyword]: https://doc.rust-lang.org/reference/items/static-items.html
+
+Take `tracing`, for example: it lets you emit "events" that a "subscriber" can process.
+It's used for structured logging: the event could be of level INFO and include information
+about some HTTP request, for example.
+
+`tracing` allows registering a "global" dispatcher, through [tracing::dispatcher::set_global_default][]https://docs.rs/tracing/latest/tracing/dispatcher/fn.set_global_default.html
+
+[tracing::dispatcher::set_global_default]: https://docs.rs/tracing/latest/tracing/dispatcher/fn.set_global_default.html
+
+Internally, this function will set a static (a "process-local", in rubicon terms):
+
+```rust
+
+```
 
 ---
 

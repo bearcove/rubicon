@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 //=====crimes
 
-/// This gets rid of Rust compiler errors when trying to refer to an `extern "C"`
+/// This gets rid of Rust compiler errors when trying to refer to an `extern`
 /// static. That error is there for a reason, but we're doing crimes.
 pub struct TrustedExtern<T: 'static>(pub &'static T);
 
@@ -72,6 +72,11 @@ macro_rules! thread_local_inner {
                 $vis static $name: $ty = $expr;
             }
 
+            // we _could_ export with a mangled name, but we couldn't
+            // import with a mangled name (extern disables mangling)
+            //
+            // the internals of thread-locals are not stable, so we can't
+            // use `::std::thred::LocalKey` directly.
             #[no_mangle]
             static [<$name __rubicon_export>]: $crate::LocalKeyAbi<$ty> = $crate::LocalKeyAbi {
                 inner: |v| {
@@ -117,7 +122,7 @@ macro_rules! thread_local {
 macro_rules! thread_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty) => {
         $crate::paste! {
-            extern "C" {
+            extern "Rust" {
                 #[link_name = stringify!([<$name __rubicon__export>])]
                 #[allow(improper_ctypes)]
                 static [<$name __rubicon_import>]: ::std::thread::LocalKey<$ty>;
@@ -133,21 +138,59 @@ macro_rules! thread_local_inner {
 #[cfg(feature = "export-globals")]
 #[macro_export]
 macro_rules! process_local {
+    // empty (base case for the recursion)
+    () => {};
+
+    // single declaration
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
+    };
+
+    // handle multiple declarations
+    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr; $($rest:tt)*) => {
+        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
+        $crate::process_local!($($rest)*);
+    };
+}
+
+#[cfg(feature = "export-globals")]
+#[macro_export]
+macro_rules! process_local_inner {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
+            // we _could_ export with a mangled name, but we couldn't
+            // import with a mangled name (extern disables mangling)
             #[export_name = stringify!([<$name __rubicon__export>])]
             $(#[$attrs])*
             $vis static $name: $ty = $expr;
         }
-    }
+    };
 }
 
 #[cfg(feature = "import-globals")]
 #[macro_export]
 macro_rules! process_local {
+    // empty (base case for the recursion)
+    () => {};
+
+    // single declaration
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty);
+    };
+
+    // handle multiple declarations
+    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr; $($rest:tt)*) => {
+        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty);
+        $crate::process_local!($($rest)*);
+    };
+}
+
+#[cfg(feature = "import-globals")]
+#[macro_export]
+macro_rules! process_local_inner {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty) => {
         $crate::paste! {
-            extern "C" {
+            extern "Rust" {
                 #[link_name = stringify!([<$name __rubicon_export>])]
                 #[allow(improper_ctypes)]
                 static [<$name __rubicon_import>]: $ty;
@@ -155,17 +198,34 @@ macro_rules! process_local {
 
             $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
         }
-    }
+    };
 }
 
 #[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
 #[macro_export]
 macro_rules! process_local {
-    // nothing special happens in normal mode
+    // empty (base case for the recursion)
+    () => {};
+
+    // single declaration
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
+    };
+
+    // handle multiple declarations
+    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr; $($rest:tt)*) => {
+        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
+        $crate::process_local!($($rest)*);
+    };
+}
+
+#[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
+#[macro_export]
+macro_rules! process_local_inner {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $(#[$attrs])*
         $vis static $name: $ty = $expr;
-    }
+    };
 }
 
 //===== soprintln!

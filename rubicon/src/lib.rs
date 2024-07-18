@@ -138,6 +138,9 @@ macro_rules! thread_local_inner {
                 static [<$name __rubicon_import>]: ::std::thread::LocalKey<$ty>;
             }
 
+            // even though this ends up being not a LocalKey, but a type that Derefs to LocalKey,
+            // in practice, most codebases work just fine with this, since they call methods
+            // that takes `self: &LocalKey`: they don't see the difference.
             $vis static $name: $crate::TrustedExtern<::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
         }
     };

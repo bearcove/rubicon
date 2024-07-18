@@ -84,7 +84,7 @@ macro_rules! thread_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
         $crate::paste! {
             extern "C" {
-                #[link_name = stringify!($name)]
+                #[link_name = stringify!([<$name __rubicon__export>])]
                 #[allow(improper_ctypes)]
                 static [<$name __rubicon_import>]: ::std::thread::LocalKey<$ty>;
             }
@@ -100,9 +100,11 @@ macro_rules! thread_local {
 #[macro_export]
 macro_rules! process_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        #[no_mangle]
-        $(#[$attrs])*
-        $vis static $name: $ty = $expr;
+        $crate::paste! {
+            #[export_name = stringify!([<$name __rubicon__export>])]
+            $(#[$attrs])*
+            $vis static $name: $ty = $expr;
+        }
     }
 }
 
@@ -112,7 +114,7 @@ macro_rules! process_local {
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
         $crate::paste! {
             extern "C" {
-                #[link_name = stringify!($name)]
+                #[link_name = stringify!([<$name __rubicon_export>])]
                 #[allow(improper_ctypes)]
                 static [<$name __rubicon_import>]: $ty;
             }

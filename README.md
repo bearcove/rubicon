@@ -1,3 +1,6 @@
+[![License: MIT/Apache-2.0](https://img.shields.io/badge/License-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
+[![Crates.io](https://img.shields.io/crates/v/rubicon.svg)](https://crates.io/crates/rubicon)
+
 # rubicon
 
 rubicon enables a dangerous form of dynamic linking in Rust through cdylib crates

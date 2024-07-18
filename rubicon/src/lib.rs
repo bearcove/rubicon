@@ -4,10 +4,11 @@ compile_error!("The features `export-globals` and `import-globals` cannot be use
 #[cfg(any(feature = "export-globals", feature = "import-globals"))]
 pub use paste::paste;
 
-//===== crimes
+//==============================================================================
+// Wrappers
+//==============================================================================
 
-/// This gets rid of Rust compiler errors when trying to refer to an `extern`
-/// static. That error is there for a reason, but we're doing crimes.
+/// Wrapper around an `extern` `static` ref to avoid requiring `unsafe` for imported globals.
 pub struct TrustedExtern<T: 'static>(pub &'static T);
 
 use std::ops::Deref;
@@ -19,17 +20,26 @@ impl<T> Deref for TrustedExtern<T> {
     }
 }
 
+/// Wrapper around an `extern` `static` double-ref to avoid requiring `unsafe` for imported globals.
+///
+/// The reason we have a double-ref is that when exporting thread-locals, the dynamic symbol is
+/// already a ref. Then, in our own static, we can only access the address of that ref, not its
+/// value (since its value is only known as load time, not compile time).
+///
+/// As a result, imported thread-locals have an additional layer of indirection.
 pub struct TrustedExternDouble<T: 'static>(pub &'static &'static T);
 
 impl<T> Deref for TrustedExternDouble<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        // autoderef plays a role here
+        // autoderef goes brrr
         self.0
     }
 }
 
-//===== thread-locals
+//==============================================================================
+// Thread-locals
+//==============================================================================
 
 #[cfg(not(any(feature = "import-globals", feature = "export-globals")))]
 #[macro_export]
@@ -99,7 +109,9 @@ macro_rules! thread_local_inner {
     };
 }
 
-//===== process-locals (statics)
+//==============================================================================
+// Process-locals (statics)
+//==============================================================================
 
 #[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
 #[macro_export]
@@ -196,31 +208,37 @@ macro_rules! process_local_inner_mut {
     };
 }
 
-//===== soprintln!
+//==============================================================================
+// soprintln
+//==============================================================================
 
-#[no_mangle]
+/// Note: there's one copy of this static per shared object on purpose — that's the one
+/// static we DON'T want to deduplicate.
+#[used]
 static SHARED_OBJECT_ID_REF: u64 = 0;
 
 /// Returns a unique identifier for the current shared object
-/// (based on the address of the `shared_object_id_ref` function).
+/// (based on the address of the `SHARED_OBJECT_ID_REF` static).
 pub fn shared_object_id() -> u64 {
     &SHARED_OBJECT_ID_REF as *const _ as u64
 }
 
+/// Defined to `I` when importing globals, `E` when exporting globals, and `N` otherwise.
 #[cfg(feature = "import-globals")]
 pub static RUBICON_MODE: &str = "I"; // "import"
 
+/// Defined to `I` when importing globals, `E` when exporting globals, and `N` otherwise.
 #[cfg(feature = "export-globals")]
 pub static RUBICON_MODE: &str = "E"; // "export"
 
+/// Defined to `I` when importing globals, `E` when exporting globals, and `N` otherwise.
 #[cfg(not(any(feature = "import-globals", feature = "export-globals")))]
 pub static RUBICON_MODE: &str = "N"; // "normal"
 
 #[cfg(all(feature = "import-globals", feature = "export-globals"))]
 compile_error!("The features \"import-globals\" and \"export-globals\" are mutually exclusive");
 
-/// A u64 value, with an automatically-generated foreground and background color,
-/// with a `Display` implementation that prints the value with 24-bit color ANSI escape codes.
+/// A `u64` whose 24-bit ANSI color is determined by its value.
 pub struct Beacon<'a> {
     fg: (u8, u8, u8),
     bg: (u8, u8, u8),
@@ -345,6 +363,12 @@ macro_rules! soprintln {
     };
 }
 
+/// `soprintln!` prints a message prefixed by a truncated timestamp, shared object ID and thread ID.
+///
+/// It is costly, which is why it's behind a cargo feature AND an environment variable.
+///
+/// To see soprintln output, enable the `soprintln` cargo feature, and set the `SO_PRINTLN`
+/// environment variable to `1`.
 #[macro_export]
 #[cfg(not(feature = "soprintln"))]
 macro_rules! soprintln {

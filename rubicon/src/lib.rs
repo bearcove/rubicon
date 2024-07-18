@@ -31,7 +31,7 @@ macro_rules! thread_local {
     }
 }
 
-#[cfg(feature = "export-globals")]
+#[cfg(any(feature = "export-globals", feature = "import-globals"))]
 #[macro_export]
 macro_rules! thread_local {
     // empty (base case for the recursion)
@@ -74,32 +74,8 @@ macro_rules! thread_local_inner {
 
 #[cfg(feature = "import-globals")]
 #[macro_export]
-macro_rules! thread_local {
-    // empty (base case for the recursion)
-    () => {};
-
-    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = const { $expr:expr } $(;)?) => {
-        $crate::thread_local! {
-            $(#[$attrs])*
-            $vis static $name: $ty = $expr;
-        }
-    };
-
-    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        $crate::thread_local_inner!($(#[$attrs])* $vis $name, $ty);
-    };
-
-    // handle multiple declarations
-    ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr; $($rest:tt)*) => (
-        $crate::thread_local_inner!($(#[$attr])* $vis $name, $t);
-        $crate::thread_local!($($rest)*);
-    );
-}
-
-#[cfg(feature = "import-globals")]
-#[macro_export]
 macro_rules! thread_local_inner {
-    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty) => {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
             extern "Rust" {
                 #[link_name = stringify!([<$name __rubicon_export>])]
@@ -117,7 +93,16 @@ macro_rules! thread_local_inner {
 
 //===== process-locals (statics)
 
-#[cfg(feature = "export-globals")]
+#[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
+#[macro_export]
+macro_rules! process_local {
+    // pass through
+    ($($tts:tt)+) => {
+        $($tts)+
+    }
+}
+
+#[cfg(any(feature = "export-globals", feature = "import-globals"))]
 #[macro_export]
 macro_rules! process_local {
     // empty (base case for the recursion)
@@ -151,26 +136,8 @@ macro_rules! process_local_inner {
 
 #[cfg(feature = "import-globals")]
 #[macro_export]
-macro_rules! process_local {
-    // empty (base case for the recursion)
-    () => {};
-
-    // single declaration
-    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty);
-    };
-
-    // handle multiple declarations
-    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr; $($rest:tt)*) => {
-        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty);
-        $crate::process_local!($($rest)*);
-    };
-}
-
-#[cfg(feature = "import-globals")]
-#[macro_export]
 macro_rules! process_local_inner {
-    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty) => {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
             extern "Rust" {
                 #[link_name = stringify!([<$name __rubicon_export>])]
@@ -180,33 +147,6 @@ macro_rules! process_local_inner {
 
             $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
         }
-    };
-}
-
-#[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
-#[macro_export]
-macro_rules! process_local {
-    // empty (base case for the recursion)
-    () => {};
-
-    // single declaration
-    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
-        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
-    };
-
-    // handle multiple declarations
-    ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr; $($rest:tt)*) => {
-        $crate::process_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
-        $crate::process_local!($($rest)*);
-    };
-}
-
-#[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
-#[macro_export]
-macro_rules! process_local_inner {
-    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
-        $(#[$attrs])*
-        $vis static $name: $ty = $expr;
     };
 }
 

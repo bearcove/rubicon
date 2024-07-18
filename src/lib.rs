@@ -40,6 +40,9 @@ macro_rules! thread_local {
 #[cfg(feature = "export-globals")]
 #[macro_export]
 macro_rules! thread_local {
+    // empty (base case for the recursion)
+    () => {};
+
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = const { $expr:expr } $(;)?) => {
         $crate::thread_local! {
             $(#[$attrs])*
@@ -48,6 +51,20 @@ macro_rules! thread_local {
     };
 
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        $crate::thread_local_inner!($(#[$attrs])* $vis $name, $ty, $expr);
+    };
+
+    // handle multiple declarations
+    ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr; $($rest:tt)*) => (
+        $crate::thread_local_inner!($(#[$attr])* $vis $name, $t, $init);
+        $crate::thread_local!($($rest)*);
+    );
+}
+
+#[cfg(feature = "export-globals")]
+#[macro_export]
+macro_rules! thread_local_inner {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
             // regular thread-local macro
             ::std::thread_local! {
@@ -74,6 +91,9 @@ macro_rules! thread_local {
 #[cfg(feature = "import-globals")]
 #[macro_export]
 macro_rules! thread_local {
+    // empty (base case for the recursion)
+    () => {};
+
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = const { $expr:expr } $(;)?) => {
         $crate::thread_local! {
             $(#[$attrs])*
@@ -82,6 +102,20 @@ macro_rules! thread_local {
     };
 
     ($(#[$attrs:meta])* $vis:vis static $name:ident: $ty:ty = $expr:expr $(;)?) => {
+        $crate::thread_local_inner!($(#[$attrs])* $vis $name, $ty);
+    };
+
+    // handle multiple declarations
+    ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr; $($rest:tt)*) => (
+        $crate::thread_local_inner!($(#[$attr])* $vis $name, $t);
+        $crate::thread_local!($($rest)*);
+    );
+}
+
+#[cfg(feature = "import-globals")]
+#[macro_export]
+macro_rules! thread_local_inner {
+    ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty) => {
         $crate::paste! {
             extern "C" {
                 #[link_name = stringify!([<$name __rubicon__export>])]
@@ -294,35 +328,60 @@ struct RubiconSample {
 }
 
 crate::thread_local! {
-    static RUBICON_TL_SAMPLE: RubiconSample = RubiconSample {
-        contents: Arc::new(123),
+    static RUBICON_TL_SAMPLE1: RubiconSample = RubiconSample {
+        contents: Arc::new(12),
     };
 }
 
 crate::thread_local! {
     static RUBICON_TL_SAMPLE2: RubiconSample = RubiconSample {
-        contents: Arc::new(123),
+        contents: Arc::new(23),
     };
 }
 
-crate::process_local! {
-    static RUBICON_PL_SAMPLE: AtomicU64 = AtomicU64::new(123);
+crate::thread_local! {
+    static RUBICON_TL_SAMPLE3: RubiconSample = RubiconSample {
+        contents: Arc::new(34),
+    };
+    static RUBICON_TL_SAMPLE4: RubiconSample = RubiconSample {
+        contents: Arc::new(45),
+    }
 }
 
 crate::process_local! {
-    static RUBICON_PL_SAMPLE2: AtomicU64 = AtomicU64::new(456);
+    static RUBICON_PL_SAMPLE1: AtomicU64 = AtomicU64::new(12);
+}
+
+crate::process_local! {
+    static RUBICON_PL_SAMPLE2: AtomicU64 = AtomicU64::new(23);
+}
+
+crate::process_local! {
+    static RUBICON_PL_SAMPLE3: AtomicU64 = AtomicU64::new(34);
+    static RUBICON_PL_SAMPLE4: AtomicU64 = AtomicU64::new(45);
 }
 
 pub fn world_goes_round() {
     crate::soprintln!("hi");
-    RUBICON_TL_SAMPLE.with(|s| {
+    RUBICON_TL_SAMPLE1.with(|s| {
         let contents = s.contents.clone();
-        println!("contents: {}", contents);
+        println!("TL_SAMPLE1: {}", contents);
     });
     RUBICON_TL_SAMPLE2.with(|s| {
         let contents = s.contents.clone();
-        println!("contents: {}", contents);
+        println!("TL_SAMPLE2: {}", contents);
     });
-    RUBICON_PL_SAMPLE.fetch_add(1, Ordering::Relaxed);
+    RUBICON_TL_SAMPLE3.with(|s| {
+        let contents = s.contents.clone();
+        println!("TL_SAMPLE3: {}", contents);
+    });
+    RUBICON_TL_SAMPLE4.with(|s| {
+        let contents = s.contents.clone();
+        println!("TL_SAMPLE4: {}", contents);
+    });
+
+    RUBICON_PL_SAMPLE1.fetch_add(1, Ordering::Relaxed);
     RUBICON_PL_SAMPLE2.fetch_add(1, Ordering::Relaxed);
+    RUBICON_PL_SAMPLE3.fetch_add(1, Ordering::Relaxed);
+    RUBICON_PL_SAMPLE4.fetch_add(1, Ordering::Relaxed);
 }

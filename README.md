@@ -237,7 +237,7 @@ or that are instantiated the exact same way in each independent depgraph.
 There will be a copy of each of these in the application executable AND in each
 `libmod_etc.dylib` file. That's unavoidable for now.
 
-## Duplicating globals is never okay
+### Duplicating globals is never okay
 
 Now that we've made our peace with the fact there _will_ be code duplication, and
 that, as long as that code EXACTLY MATCHES across different copies, it's okay,
@@ -293,7 +293,7 @@ according to `mod_a`'s copy of `GLOBAL_DISPATH` — there's no subscriber!
 There's only one fix for this: everyone must share the same `GLOBAL_DISPATCH`:
 it must be exported from `app`, and imported from all its modules.
 
-## Global symbol commerce
+## How Rust exports and imports dynamic symbols
 
 In a perfect world, there'd be a rustc flag like `-C globals-linkage=[import,export]`:
 we'd set it to `export` for our app, so that it would declare those as exported symbols,
@@ -415,13 +415,150 @@ collision between the unmangled globals of various crates in the dependency grap
 which means, that's right, we're back to manually prefixing things, like in C.
 
 We've just covered process-locals. The situation for thread-locals is much the
-same, except we have to do some more trickery because the internals of `LocalKey`
+same, except we have to do some more trickG*ery because the internals of `LocalKey`
 are, well, internal, and cannot be accessed from stable Rust.
 
 Getting all these just right is tricky — that's why `rubicon` ships macros, which
 are meant to be used by any crate that has global state, such as `tokio`, `tracing`,
 `parking_lot`, etc.
 
-## Adding rubicon support to a crate
+This is not as good as a rustc flag, but it's all we got right now. In time, the
+hope is that `rubicon` will disappear.
 
-Let's take tokio as an example. First, we'll want to
+## Making a crate rubicon-compatible
+
+If you maintain a crate that has global state, you might want to make it
+rubicon-compatible.
+
+### Depend on rubicon
+
+You'll need to add a non-optional dependency to it:
+
+```shell
+cargo add rubicon
+```
+
+Without any features added, it has zero dependencies.
+
+When `rubicon/import-globals` or `rubicon/export-globals` is enabled, it will
+pull in [paste](https://crates.io/crates/paste), which is a proc-macro: I'm not
+fond of the idea, but I've explored alternatives and token pasting is the best
+I can do right now.
+
+Enabling _both_ features at the same time will yield a compile error, and
+enabling _neither_ will act as if your crate wasn't using rubicon's macros at
+all (so most users of your crate should be completely unaffected).
+
+Users are in charge of adding their _own_ dependency to `rubicon` and enabling
+either feature — this avoids feature proliferation. Provided that there's only one
+copy of `rubicon` in the entire depgraph (e.g. everyone is on 3.x), then the scheme
+works.
+
+### Macro your thread-locals
+
+`rubicon::thread_local!` is a drop-in replacement for `std::thread_local!`.
+
+Before:
+
+```rust
+std::thread_local! {
+    static BUF: RefCell<String> = RefCell::new(String::new());
+}
+```
+
+After:
+
+```rust
+rubicon::thread_local! {
+    static BUF: RefCell<String> = RefCell::new(String::new());
+}
+```
+
+However, keep in mind that, whenever import/export is enabled, mangling will
+be disabled for your static. Thus, it might be a good idea to preemptively
+prefix it:
+
+```rust
+rubicon::thread_local! {
+    static MY_CRATE_BUF: RefCell<String> = RefCell::new(String::new());
+}
+```
+
+### Macro your statics
+
+Before:
+
+```rust
+static DISPATCHERS: Dispatchers = Dispatchers::new();
+static CALLSITES: Callsites = Callsites {
+    list_head: AtomicPtr::new(ptr::null_mut()),
+    has_locked_callsites: AtomicBool::new(false),
+};
+static DISPATCHERS: Dispatchers = Dispatchers::new();
+static LOCKED_CALLSITES: Lazy<Mutex<Vec<&'static dyn Callsite>>> = Lazy::new(Default::default);
+```
+
+After:
+
+```rust
+rubicon::process_local! {
+    static DISPATCHERS: Dispatchers = Dispatchers::new();
+    static CALLSITES: Callsites = Callsites {
+        list_head: AtomicPtr::new(ptr::null_mut()),
+        has_locked_callsites: AtomicBool::new(false),
+    };
+    static DISPATCHERS: Dispatchers = Dispatchers::new();
+    static LOCKED_CALLSITES: Lazy<Mutex<Vec<&'static dyn Callsite>>> = Lazy::new(Default::default);
+}
+```
+
+Both `thread_local!` and `process_local!` support multiple definitions.
+
+In addition, `process_local!` supports `static mut`, should you _really_ need it (looking
+at you tracing-core).
+
+### Mind your dependencies
+
+Sometimes thread-locals and statics hide in the darndest of places.
+
+For example, `tokio` depends on `parking_lot` which has global state (did you know?)
+
+```rust
+/// Holds the pointer to the currently active `HashTable`.
+///
+/// # Safety
+///
+/// Except for the initial value of null, it must always point to a valid `HashTable` instance.
+/// Any `HashTable` this global static has ever pointed to must never be freed.
+static PARKING_LOT_HASHTABLE: AtomicPtr<HashTable> = AtomicPtr::new(ptr::null_mut());
+```
+
+## Implementing the `xgraph` model
+
+Assuming all your dependencies are rubicon-compatible, you can implement the `xgraph` model!
+
+In terms of crates, you'll need
+
+  * `bin`, a bin crate, depends on `exports`, and `libloading`
+  * `exports`, a lib crate, `crate-type=["dylib"]` (that's just "dye lib")
+    * depends on _all_ your rubicon-compatible dependencies
+    * depends on `rubicon` with feature `export-globals` enabled
+  * `mod_a`, a lib crate, `crate-type=["cdylib"]` (that's "see dye lib")
+    * depends on `rubicon` with feature `import-globals` enabled
+  * `mod_b`, like `mod_a`
+  * `mod_c`, like `mod_a`
+  * etc.
+
+> The `exports` crate is needed to bring all globals in the address space in a way
+> that the dynamic linker can understand.
+>
+> _Technically_ `-rdynamic` should help there, but I couldn't get it to work.
+
+That's about it. Don't forget the invariants!
+
+  * A. Modules are NEVER UNLOADED, only loaded.
+  * B. The EXACT SAME RUSTC VERSION is used to build the app and all modules
+  * C. The EXACT SAME CARGO FEATURES are enabled for crates that both the app
+      and some modules depend on.
+
+You can find a full example in `test-crates/` in [the rubicon repository](https://github.com/bearcove/rubicon).

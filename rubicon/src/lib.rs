@@ -442,6 +442,16 @@ extern "C" {
 #[used]
 static MERCHANDISE_ADDR: &u64 = unsafe { &MERCHANDISE };
 
+#[used]
+static MERCHANDISE_ADDR2: &u64 = MERCHANDISE_ADDR;
+
+// std::thread_local! {
+//     static NUM_SUBSCRIBERS: AtomicUsize = AtomicUsize::new(0);
+// }
+
+const NUM_SUBSCRIBERS: ::std::thread::LocalKey<u64> =
+    unsafe { ::std::thread::LocalKey::new(|_v| std::ptr::null()) };
+
 pub fn world_goes_round() {
     crate::soprintln!("hi");
     RUBICON_TL_SAMPLE1.with(|s| {

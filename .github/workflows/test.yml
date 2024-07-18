@@ -31,7 +31,7 @@ jobs:
           cargo run --manifest-path test-crates/bin/Cargo.toml --release
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
       - name: Run cargo command (release with SOPRINTLN=1)
+        if: matrix.os != 'windows-latest'
         run: |
           export SOPRINTLN=1
           cargo run --manifest-path test-crates/bin/Cargo.toml --release
-        continue-on-error: ${{ matrix.os == 'windows-latest' }}

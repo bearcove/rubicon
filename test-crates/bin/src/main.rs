@@ -20,6 +20,7 @@ fn main() {
 
     let modules = ["../mod_a", "../mod_b"];
     for module in modules {
+        soprintln!("building {module}");
         let output = std::process::Command::new("cargo")
             .arg("b")
             .env(
@@ -39,6 +40,7 @@ fn main() {
         }
     }
 
+    soprintln!("loading modules...");
     let lib_a =
         unsafe { libloading::Library::new("../mod_a/target/debug/libmod_a.dylib").unwrap() };
     let lib_a = Box::leak(Box::new(lib_a));

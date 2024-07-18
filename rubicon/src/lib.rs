@@ -1,6 +1,7 @@
 #[cfg(all(feature = "export-globals", feature = "import-globals"))]
 compile_error!("The features `export-globals` and `import-globals` cannot be used together");
 
+#[cfg(any(feature = "export-globals", feature = "import-globals"))]
 pub use paste::paste;
 
 //===== crimes

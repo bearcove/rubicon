@@ -1,11 +1,10 @@
 use std::sync::atomic::Ordering;
 
 use exports::{self as _, mokio};
-use rubicon::soprintln;
+use soprintln::soprintln;
 
 fn main() {
-    std::env::set_var("SO_PRINTLN", "1");
-
+    soprintln::init!();
     let exe_path = std::env::current_exe().expect("Failed to get current exe path");
     let project_root = exe_path
         .parent()

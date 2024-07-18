@@ -9,6 +9,7 @@ dependencies = [
  "exports",
  "libloading",
  "rubicon",
+ "soprintln",
 ]
 
 [[package]]
@@ -53,6 +54,12 @@ version = "2.0.0"
 dependencies = [
  "paste",
 ]
+
+[[package]]
+name = "soprintln"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cc96941d6cac2e2654f62398ae8319ff55a730d6ee2edc78d112f37e5507613"
 
 [[package]]
 name = "windows-targets"

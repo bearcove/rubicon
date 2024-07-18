@@ -4,4 +4,4 @@ check:
     cargo hack --each-feature --exclude-all-features clippy --manifest-path rubicon/Cargo.toml
 
 test:
-    cargo run --manifest-path test-crates/bin/Cargo.toml
+    SOPRINTLN=1 cargo run --manifest-path test-crates/bin/Cargo.toml

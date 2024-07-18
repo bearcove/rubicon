@@ -20,4 +20,3 @@ paste = { version = "1.0.15", optional = true }
 default = []
 export-globals = ["dep:paste"]
 import-globals = ["dep:paste"]
-soprintln = []

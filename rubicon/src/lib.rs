@@ -21,6 +21,16 @@ impl<T> Deref for TrustedExtern<T> {
     }
 }
 
+pub struct TrustedExternDouble<T: 'static>(pub &'static &'static T);
+
+impl<T> Deref for TrustedExternDouble<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        // autoderef plays a role here
+        self.0
+    }
+}
+
 //===== thread-locals
 
 #[cfg(not(any(feature = "import-globals", feature = "export-globals")))]
@@ -86,7 +96,7 @@ macro_rules! thread_local_inner {
             // even though this ends up being not a LocalKey, but a type that Derefs to LocalKey,
             // in practice, most codebases work just fine with this, since they call methods
             // that takes `self: &LocalKey`: they don't see the difference.
-            $vis static $name: $crate::TrustedExtern<&::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
+            $vis static $name: $crate::TrustedExternDouble<::std::thread::LocalKey<$ty>> = $crate::TrustedExternDouble(unsafe { &[<$name __rubicon_import>] });
         }
     };
 }

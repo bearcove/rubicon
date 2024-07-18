@@ -9,6 +9,7 @@ pub use paste::paste;
 //==============================================================================
 
 /// Wrapper around an `extern` `static` ref to avoid requiring `unsafe` for imported globals.
+#[doc(hidden)]
 pub struct TrustedExtern<T: 'static>(pub &'static T);
 
 use std::ops::Deref;
@@ -27,6 +28,7 @@ impl<T> Deref for TrustedExtern<T> {
 /// value (since its value is only known as load time, not compile time).
 ///
 /// As a result, imported thread-locals have an additional layer of indirection.
+#[doc(hidden)]
 pub struct TrustedExternDouble<T: 'static>(pub &'static &'static T);
 
 impl<T> Deref for TrustedExternDouble<T> {
@@ -41,6 +43,22 @@ impl<T> Deref for TrustedExternDouble<T> {
 // Thread-locals
 //==============================================================================
 
+/// Imports or exports a thread-local, depending on the enabled cargo features.
+///
+/// Usage:
+///
+///   ```ignore
+///   use rubicon::process_local;
+///
+///   process_local! {
+///       static FOO: u32 = 42;
+///   }
+///   ```
+///
+/// This will import `FOO` if the `import-globals` feature is enabled, and export it if the
+/// `export-globals` feature is enabled.
+///
+/// If neither feature is enabled, this will expand to the static declaration itself.
 #[cfg(not(any(feature = "import-globals", feature = "export-globals")))]
 #[macro_export]
 macro_rules! thread_local {
@@ -113,6 +131,23 @@ macro_rules! thread_local_inner {
 // Process-locals (statics)
 //==============================================================================
 
+/// Imports or exports a `static`, depending on the enabled cargo features.
+///
+/// Usage:
+///
+///   ```ignore
+///   rubicon::process_local! {
+///       static FOO: u32 = 42;
+///   }
+///   ```
+///
+/// This will import `FOO` if the `import-globals` feature is enabled, and export it if the
+/// `export-globals` feature is enabled.
+///
+/// If neither feature is enabled, this will expand to the static declaration itself.
+///
+/// This macro supports multiple declarations, along with `static mut` declarations
+/// (which have a slightly different expansion).
 #[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
 #[macro_export]
 macro_rules! process_local {
@@ -217,8 +252,7 @@ macro_rules! process_local_inner_mut {
 #[used]
 static SHARED_OBJECT_ID_REF: u64 = 0;
 
-/// Returns a unique identifier for the current shared object
-/// (based on the address of the `SHARED_OBJECT_ID_REF` static).
+/// Returns a unique identifier for the current shared object.
 pub fn shared_object_id() -> u64 {
     &SHARED_OBJECT_ID_REF as *const _ as u64
 }
@@ -239,6 +273,8 @@ pub static RUBICON_MODE: &str = "N"; // "normal"
 compile_error!("The features \"import-globals\" and \"export-globals\" are mutually exclusive");
 
 /// A `u64` whose 24-bit ANSI color is determined by its value.
+///
+/// Used by the [`soprintln`] macro to visually distinguish shared objects and threads.
 pub struct Beacon<'a> {
     fg: (u8, u8, u8),
     bg: (u8, u8, u8),

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rubicon = { version = "2.0.0", path = "../../rubicon" }
+rubicon = { path = "../../rubicon" }
 
 [features]
 import-globals = ["rubicon/import-globals"]

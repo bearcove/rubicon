@@ -12,15 +12,6 @@ use std::sync::Arc;
 /// static. That error is there for a reason, but we're doing crimes.
 pub struct TrustedExtern<T: 'static>(pub &'static T);
 
-/// A struct with the same layout as `std::thread::LocalKey<T>`
-/// as of Rust 1.79, but with a public inner field
-///
-/// If this gets out of sync with the layout of `std::thread::LocalKey<T>`,
-/// then UB will happen.
-pub struct LocalKeyAbi<T: 'static> {
-    pub inner: unsafe fn(Option<&mut Option<T>>) -> Option<&'static T>,
-}
-
 use std::ops::Deref;
 
 impl<T> Deref for TrustedExtern<T> {
@@ -70,34 +61,13 @@ macro_rules! thread_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
             // regular thread-local macro, not exported.
-            //
-            // I'd love to use `#[no_mangle]` here, but the std thread-local macro
-            // doesn't relay it?
             ::std::thread_local! {
                 $(#[$attrs])*
                 $vis static $name: $ty = $expr;
             }
 
-            // we _could_ export with a mangled name, but we couldn't
-            // import with a mangled name (extern disables mangling)
-            //
-            // the internals of thread-locals are not stable, so we can't
-            // use `::std::thred::LocalKey` directly.
-            //
-            // using `#[allow_internal_unstable(thread_local_internals)]`
-            // would make this crate nightly-only.
             #[no_mangle]
-            static [<$name __rubicon_export>]: $crate::LocalKeyAbi<$ty> = $crate::LocalKeyAbi {
-                inner: |v| {
-                    unsafe {
-                        use $crate::LocalKeyAbi;
-                        use ::std::thread::LocalKey;
-                        use ::std::mem::transmute;
-                        let lk = transmute::<&LocalKey<$ty>, &LocalKeyAbi<$ty>>(&$name);
-                        (lk.inner)(v)
-                    }
-                }
-            };
+            static [<$name __rubicon_export>]: &::std::thread::LocalKey<$ty> = &$name;
         }
     };
 }
@@ -132,15 +102,15 @@ macro_rules! thread_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty) => {
         $crate::paste! {
             extern "Rust" {
-                #[link_name = stringify!([<$name __rubicon__export>])]
+                #[link_name = stringify!([<$name __rubicon_export>])]
                 #[allow(improper_ctypes)]
-                static [<$name __rubicon_import>]: ::std::thread::LocalKey<$ty>;
+                static [<$name __rubicon_import>]: &'static ::std::thread::LocalKey<$ty>;
             }
 
             // even though this ends up being not a LocalKey, but a type that Derefs to LocalKey,
             // in practice, most codebases work just fine with this, since they call methods
             // that takes `self: &LocalKey`: they don't see the difference.
-            $vis static $name: $crate::TrustedExtern<::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
+            $vis static $name: $crate::TrustedExtern<&::std::thread::LocalKey<$ty>> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
         }
     };
 }
@@ -172,7 +142,7 @@ macro_rules! process_local_inner {
         $crate::paste! {
             // we _could_ export with a mangled name, but we couldn't
             // import with a mangled name (extern disables mangling)
-            #[export_name = stringify!([<$name __rubicon__export>])]
+            #[export_name = stringify!([<$name __rubicon_export>])]
             $(#[$attrs])*
             $vis static $name: $ty = $expr;
         }
@@ -432,25 +402,6 @@ crate::process_local! {
     static RUBICON_PL_SAMPLE3: AtomicU64 = AtomicU64::new(34);
     static RUBICON_PL_SAMPLE4: AtomicU64 = AtomicU64::new(45);
 }
-
-extern "C" {
-    #[link_name = "STILL_MERCHANDISE"]
-    static MERCHANDISE: u64;
-}
-
-// (only here to force the linker to import MERCHANDISE)
-#[used]
-static MERCHANDISE_ADDR: &u64 = unsafe { &MERCHANDISE };
-
-#[used]
-static MERCHANDISE_ADDR2: &u64 = MERCHANDISE_ADDR;
-
-// std::thread_local! {
-//     static NUM_SUBSCRIBERS: AtomicUsize = AtomicUsize::new(0);
-// }
-
-const NUM_SUBSCRIBERS: ::std::thread::LocalKey<u64> =
-    unsafe { ::std::thread::LocalKey::new(|_v| std::ptr::null()) };
 
 pub fn world_goes_round() {
     crate::soprintln!("hi");

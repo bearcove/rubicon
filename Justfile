@@ -7,6 +7,8 @@ build:
     #!/usr/bin/env bash -eux
     cd rubicon
 
+    export RUSTFLAGS="-Clink-arg=-undefined -Clink-arg=dynamic_lookup"
+
     echo "======== Regular build ========"
     cargo build
     nm target/debug/librubicon.dylib | grep -E 'RUBICON_(TL|PL)_SAMPLE'

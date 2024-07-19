@@ -182,7 +182,7 @@ If in another module, we have that code:
 let jh = tokio::spawn(async move {
     // make yourself wanted
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    println!("Oh hey, you're early!")"
+    println!("Oh hey, you're early!");
     42
 });
 let answer = jh.await.unwrap();

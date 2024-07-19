@@ -246,7 +246,7 @@ There will be a copy of each of these in the application executable AND in each
 
 Now that we've made our peace with the fact there _will_ be code duplication, and
 that, as long as that code EXACTLY MATCHES across different copies, it's okay,
-we need to address the fact that duplicating globals isn't _never okay_.
+we need to address the fact that duplicating globals is _never okay_.
 
 In particular, by globals, we mean:
 

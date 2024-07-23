@@ -7,7 +7,8 @@ edition = "2021"
 crate-type = ["dylib"]
 
 [dependencies]
-mokio = { version = "0.1.0", path = "../mokio", features = ["export-globals"] }
+mokio = { version = "0.1.0", path = "../mokio" }
+rubicon = { path = "../../rubicon", features = ["export-globals"] }
 
 [features]
 mokio-timer = ["mokio/timer"]

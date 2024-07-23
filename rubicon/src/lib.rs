@@ -346,14 +346,46 @@ macro_rules! compatibility_check {
             let extra: Vec<_> = exported.iter().filter(|&item| !ref_compatibility_info.contains(item)).collect();
 
             if !missing.is_empty() || !extra.is_empty() {
-                eprintln!("Compatibility mismatch detected!");
-                if !missing.is_empty() {
-                    eprintln!("Missing features: {:?}", missing);
+                let mut error_message = String::new();
+                error_message.push_str("\n\x1b[31m=========================================================\x1b[0m\n");
+                error_message.push_str(&format!("   💀 Compatibility mismatch for module \x1b[31m{}\x1b[0m", env!("CARGO_PKG_NAME")));
+                error_message.push_str("\n\x1b[31m=========================================================\x1b[0m\n\n");
+
+                error_message.push_str("The loaded shared object doesn't have the exact same cargo \n");
+                error_message.push_str("features and rust toolchain as the binary it's being loaded \n");
+                error_message.push_str("in\n");
+                error_message.push_str("\n");
+
+                error_message.push_str("Present in binary                  Expected by this module\n");
+                error_message.push_str("------------------------------     ------------------------------\n");
+
+                let mut i = 0;
+                let mut j = 0;
+
+                while i < exported.len() || j < ref_compatibility_info.len() {
+                    if i < exported.len() && (j >= ref_compatibility_info.len() || exported[i].0 < ref_compatibility_info[j].0) {
+                        // Item only in exported
+                        error_message.push_str(&format!("\x1b[31m{:<30}\x1b[0m     \n", format!("{}={}", exported[i].0, exported[i].1)));
+                        i += 1;
+                    } else if j < ref_compatibility_info.len() && (i >= exported.len() || ref_compatibility_info[j].0 < exported[i].0) {
+                        // Item only in ref_compatibility_info
+                        error_message.push_str(&format!("                                \x1b[31m{:<30}\x1b[0m\n", format!("{}={}", ref_compatibility_info[j].0, ref_compatibility_info[j].1)));
+                        j += 1;
+                    } else {
+                        // Item in both
+                        let (name, value) = exported[i];
+                        let expected = ref_compatibility_info[j];
+                        let color = if (name, value) == expected { "\x1b[32m" } else { "\x1b[31m" };
+                        error_message.push_str(&format!("{}{:<30}\x1b[0m     {}{:<30}\x1b[0m\n",
+                            color, format!("{}={}", name, value),
+                            color, format!("{}={}", expected.0, expected.1)
+                        ));
+                        i += 1;
+                        j += 1;
+                    }
                 }
-                if !extra.is_empty() {
-                    eprintln!("Extra features: {:?}", extra);
-                }
-                std::process::exit(1);
+
+                panic!("{}", error_message);
             }
         }
     };

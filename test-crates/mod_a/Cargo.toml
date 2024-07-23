@@ -7,6 +7,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-mokio = { version = "0.1.0", path = "../mokio", features = ["import-globals"] }
+mokio = { version = "0.1.0", path = "../mokio", features = [
+    "import-globals",
+    "timer",
+] }
 rubicon = { path = "../../rubicon" }
 soprintln = { version = "3.0.0", features = ["print"] }

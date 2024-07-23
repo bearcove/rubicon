@@ -486,6 +486,8 @@ macro_rules! compatibility_check {
             len
         }
 
+        #[cfg(unix)]
+        #[ctor]
         fn check_compatibility() {
             eprintln!("Entering check_compatibility function");
             let imported: &[(&str, &str)] = &[
@@ -681,18 +683,30 @@ macro_rules! compatibility_check {
             panic!("{}", error_message);
         }
 
-        #[cfg(unix)]
-        #[ctor]
-        fn compatibility_check_caller() {
-            check_compatibility();
-        }
-
         #[cfg(windows)]
         #[ctor]
-        fn compatibility_check_caller() {
-            std::thread::spawn(|| {
-                check_compatibility();
-            });
+        fn check_compatibility() {
+            // on Windows we cannot allocate at all from a DLL initializer,
+
+            let imported: &[(&str, &str)] = &[
+                ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
+                ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
+                $($feature)*
+            ];
+            let exported = unsafe { COMPATIBILITY_INFO };
+
+            for item in imported.iter() {
+                if !exported.contains(item) {
+                    eprintln!("Compatibility mismatch detected: {} (imported) != {} (exported)", item.0, item.1);
+                    std::process::exit(1);
+                }
+            }
+            for item in exported.iter() {
+                if !imported.contains(item) {
+                    eprintln!("Compatibility mismatch detected: {} (exported) != {} (imported)", item.0, item.1);
+                    std::process::exit(1);
+                }
+            }
         }
     };
 }

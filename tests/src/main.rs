@@ -369,13 +369,22 @@ fn run_tests() -> io::Result<()> {
     println!("\n🧪 \x1b[1;35mRunning tests...\x1b[0m");
 
     for (index, test) in TEST_CASES.iter().enumerate() {
-        println!("\n\x1b[1;33m╔═════════════════════════════════════════════════════════════════════════════╗\x1b[0m");
-        println!(
-            "\x1b[1;33m║\x1b[0m 🎉🔬 \x1b[1;36mRunning test {}: {}\x1b[0m",
-            index + 1,
-            test.name
-        );
-        println!("\x1b[1;33m╚═════════════════════════════════════════════════════════════════════════════╝\x1b[0m");
+        {
+            let test_info = format!("Running test {}: {}", index + 1, test.name);
+            let box_width = test_info.chars().count() + 4;
+            let padding = box_width - 2 - test_info.chars().count();
+            let left_padding = padding / 2;
+            let right_padding = padding - left_padding;
+
+            println!("\n\x1b[1;33m╔{}╗\x1b[0m", "═".repeat(box_width - 2));
+            println!(
+                "\x1b[1;33m║\x1b[0m{}\x1b[1;36m{}\x1b[0m{}\x1b[1;33m║\x1b[0m",
+                " ".repeat(left_padding),
+                test_info,
+                " ".repeat(right_padding),
+            );
+            println!("\x1b[1;33m╚{}╝\x1b[0m", "═".repeat(box_width - 2));
+        }
 
         println!("🏗️  \x1b[1;34mBuilding...\x1b[0m");
         let build_result = run_command(test.build_command, &Default::default())?;

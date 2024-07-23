@@ -1,22 +1,47 @@
-use std::collections::HashMap;
 use std::env;
 use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+#[derive(Clone, Default)]
 struct EnvVars {
-    vars: HashMap<String, String>,
+    library_search_paths: Vec<String>,
 }
 
 impl EnvVars {
     fn new() -> Self {
         EnvVars {
-            vars: HashMap::new(),
+            library_search_paths: Vec::new(),
         }
     }
 
-    fn set(&mut self, key: &str, value: String) {
-        self.vars.insert(key.to_string(), value);
+    fn add_library_path(&mut self, path: String) {
+        self.library_search_paths.push(path);
+    }
+
+    fn each_kv<F>(&self, mut f: F)
+    where
+        F: FnMut(&str, &str),
+    {
+        let platform = env::consts::OS;
+        let (env_var, separator) = match platform {
+            "macos" => ("DYLD_LIBRARY_PATH", ":"),
+            "windows" => ("PATH", ";"),
+            "linux" => ("LD_LIBRARY_PATH", ":"),
+            _ => {
+                eprintln!("❌ Unsupported platform: {}", platform);
+                std::process::exit(1);
+            }
+        };
+
+        let value = self.library_search_paths.join(separator);
+        f(env_var, &value);
+    }
+
+    fn with_additional_library_path(&self, path: String) -> Self {
+        let mut new_env_vars = self.clone();
+        new_env_vars.add_library_path(path);
+        new_env_vars
     }
 }
 
@@ -43,39 +68,22 @@ fn set_env_variables(git_root: &Path) -> EnvVars {
     let platform = env::consts::OS;
     let debug_lib_path = git_root.join("test-crates/samplebin/target/debug");
 
+    env_vars.add_library_path(format!("{}/lib", rust_sysroot));
+    env_vars.add_library_path(format!("{}/lib", rust_nightly_sysroot));
+
     match platform {
         "macos" => {
             println!("🍎 Detected macOS");
-            env_vars.set(
-                "DYLD_LIBRARY_PATH",
-                format!("{}/lib:{}/lib", rust_sysroot, rust_nightly_sysroot),
-            );
         }
         "windows" => {
             println!("🪟 Detected Windows");
             let current_path = env::var("PATH").unwrap_or_default();
-            env_vars.set(
-                "PATH",
-                format!(
-                    "{};{}/lib;{}/lib;{}",
-                    current_path,
-                    rust_sysroot,
-                    rust_nightly_sysroot,
-                    debug_lib_path.display()
-                ),
-            );
+            env_vars.add_library_path(current_path);
+            env_vars.add_library_path(debug_lib_path.display().to_string());
         }
         "linux" => {
             println!("🐧 Detected Linux");
-            env_vars.set(
-                "LD_LIBRARY_PATH",
-                format!(
-                    "{}/lib:{}/lib:{}",
-                    rust_sysroot,
-                    rust_nightly_sysroot,
-                    debug_lib_path.display()
-                ),
-            );
+            env_vars.add_library_path(debug_lib_path.display().to_string());
         }
         _ => {
             eprintln!("❌ Unsupported platform: {}", platform);
@@ -84,9 +92,9 @@ fn set_env_variables(git_root: &Path) -> EnvVars {
     }
 
     println!("\nEnvironment Variables Summary:");
-    for (key, value) in &env_vars.vars {
+    env_vars.each_kv(|key, value| {
         println!("{}: {}", key, value);
-    }
+    });
 
     env_vars
 }
@@ -101,14 +109,18 @@ fn run_command(command: &[&str], env_vars: &EnvVars) -> io::Result<(bool, String
 
     println!("Running command: {} {:?}", program, args);
 
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
-        .envs(&env_vars.vars)
-        .env("PATH", std::env::var("PATH").unwrap())
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+
+    env_vars.each_kv(|key, value| {
+        command.env(key, value);
+    });
+
+    let mut child = command.spawn()?;
 
     let (tx_stdout, rx_stdout) = mpsc::channel();
     let (tx_stderr, rx_stderr) = mpsc::channel();
@@ -355,14 +367,27 @@ fn run_tests() -> io::Result<()> {
         println!("\x1b[1;33m╚═════════════════════════════════════════════════════════════════════════════╝\x1b[0m");
 
         println!("🏗️  \x1b[1;34mBuilding...\x1b[0m");
-        let build_result = run_command(test.build_command, &env_vars)?;
+        let build_result = run_command(test.build_command, &Default::default())?;
         if !build_result.0 {
             eprintln!("❌ \x1b[1;31mBuild failed. Exiting tests.\x1b[0m");
             std::process::exit(1);
         }
 
         println!("▶️  \x1b[1;32mRunning...\x1b[0m");
-        let (success, output) = run_command(test.run_command, &env_vars)?;
+        let profile = if test.build_command.contains(&"--release") {
+            "release"
+        } else {
+            "debug"
+        };
+        let additional_path = git_root
+            .join("test-crates")
+            .join("samplebin")
+            .join("target")
+            .join(profile);
+        let (success, output) = run_command(
+            test.run_command,
+            &env_vars.with_additional_library_path(additional_path.to_string_lossy().into_owned()),
+        )?;
 
         match (test.expected_result, success) {
             ("success", true) => println!("✅ \x1b[1;32mTest passed as expected.\x1b[0m"),

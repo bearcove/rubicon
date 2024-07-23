@@ -358,6 +358,7 @@ macro_rules! compatibility_check {
 
         #[cfg(windows)]
         fn get_shared_object_name() -> Option<String> {
+            eprintln!("Entering get_shared_object_name function");
             use std::mem::MaybeUninit;
             use std::ptr;
             use std::ffi::OsString;
@@ -388,28 +389,39 @@ macro_rules! compatibility_check {
             }
 
             unsafe {
+                eprintln!("Calling GetModuleHandleW");
                 let module = GetModuleHandleW(ptr::null());
                 if module.is_null() {
+                    eprintln!("GetModuleHandleW returned null");
                     return None;
                 }
 
                 let mut buffer_size = MAX_PATH;
                 loop {
+                    eprintln!("Entering loop with buffer_size: {}", buffer_size);
                     let mut buffer = Vec::<u16>::with_capacity(buffer_size as usize);
+                    eprintln!("Calling GetModuleFileNameW");
                     let result = GetModuleFileNameW(module, buffer.as_mut_ptr(), buffer_size);
 
                     if result == 0 {
+                        eprintln!("GetModuleFileNameW returned 0");
                         return None;
                     }
 
                     if result < buffer_size {
+                        eprintln!("GetModuleFileNameW succeeded with result: {}", result);
                         buffer.set_len(result as usize);
-                        return Some(OsString::from_wide(&buffer).to_string_lossy().into_owned());
+                        let os_string = OsString::from_wide(&buffer);
+                        let string = os_string.to_string_lossy().into_owned();
+                        eprintln!("Returning string: {}", string);
+                        return Some(string);
                     }
 
                     if GetLastError() == ERROR_INSUFFICIENT_BUFFER {
+                        eprintln!("Buffer insufficient, doubling size");
                         buffer_size *= 2;
                     } else {
+                        eprintln!("Unexpected error: {}", GetLastError());
                         return None;
                     }
                 }
@@ -476,6 +488,7 @@ macro_rules! compatibility_check {
 
         #[ctor]
         fn check_compatibility() {
+            eprintln!("Entering check_compatibility function");
             let imported: &[(&str, &str)] = &[
                 ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
                 ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
@@ -483,14 +496,17 @@ macro_rules! compatibility_check {
             ];
             let exported = unsafe { COMPATIBILITY_INFO };
 
+            eprintln!("Comparing imported and exported compatibility info");
             let missing: Vec<_> = imported.iter().filter(|&item| !exported.contains(item)).collect();
             let extra: Vec<_> = exported.iter().filter(|&item| !imported.contains(item)).collect();
 
             if missing.is_empty() && extra.is_empty() {
+                eprintln!("No compatibility issues found");
                 // all good
                 return;
             }
 
+            eprintln!("Compatibility issues detected, preparing error message");
             let so_name = get_shared_object_name().unwrap_or("unknown_so".to_string());
             // get only the last bit of the path
             let so_name = so_name.rsplit('/').next().unwrap_or("unknown_so");
@@ -503,6 +519,7 @@ macro_rules! compatibility_check {
 
             error_message.push_str(&format!("Loading {} would mix different configurations of the {} crate.\n\n", blue(so_name), red(env!("CARGO_PKG_NAME"))));
 
+            eprintln!("Calculating column widths for grid display");
             // Compute max lengths for alignment
             let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
             let max_ref_len = imported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
@@ -570,6 +587,7 @@ macro_rules! compatibility_check {
                 }
             }
 
+            eprintln!("Creating grid for compatibility info display");
             let mut grid = Grid::new();
 
             // Add header
@@ -599,6 +617,7 @@ macro_rules! compatibility_check {
                 grid.add_row(vec![key_column, binary_column, module_column]);
             }
 
+            eprintln!("Writing grid to error message");
             grid.write_to(&mut error_message);
 
             struct MessageBox {
@@ -648,6 +667,7 @@ macro_rules! compatibility_check {
 
             error_message.push_str("More info: \x1b[4m\x1b[34mhttps://crates.io/crates/rubicon\x1b[0m\n");
 
+            eprintln!("Creating message box for additional information");
             let mut message_box = MessageBox::new();
             message_box.add_line(format!("To fix this issue, {} needs to enable", blue(so_name)));
             message_box.add_line(format!("the same cargo features as {} for crate {}.", blue(&exe_name), red(env!("CARGO_PKG_NAME"))));
@@ -658,6 +678,7 @@ macro_rules! compatibility_check {
             message_box.write_to(&mut error_message);
             error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
 
+            eprintln!("Panicking with error message");
             panic!("{}", error_message);
         }
     };

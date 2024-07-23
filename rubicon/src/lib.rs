@@ -323,7 +323,7 @@ macro_rules! compatibility_check {
     };
 }
 
-#[cfg(feature = "import-globals")]
+#[cfg(all(unix, feature = "import-globals"))]
 #[macro_export]
 macro_rules! compatibility_check {
     ($($feature:tt)*) => {
@@ -336,7 +336,6 @@ macro_rules! compatibility_check {
         }
 
 
-        #[cfg(unix)]
         fn get_shared_object_name() -> Option<String> {
             use $crate::libc::{c_void, Dl_info};
             use std::ffi::CStr;
@@ -353,83 +352,6 @@ macro_rules! compatibility_check {
                     return Some(c_str.to_string_lossy().into_owned());
                 }
             }
-            None
-        }
-
-        #[cfg(windows)]
-        fn get_shared_object_name() -> Option<String> {
-            eprintln!("Entering get_shared_object_name function");
-            use std::mem::MaybeUninit;
-            use std::ptr;
-            use std::ffi::OsString;
-            use std::os::windows::ffi::OsStringExt;
-
-            #[allow(non_snake_case)]
-            #[repr(C)]
-            struct MODULEINFO {
-                lpBaseOfDll: *mut std::ffi::c_void,
-                SizeOfImage: u32,
-                EntryPoint: *mut std::ffi::c_void,
-            }
-
-            type HANDLE = *mut std::ffi::c_void;
-            type HMODULE = HANDLE;
-            type DWORD = u32;
-            type BOOL = i32;
-            type LPCWSTR = *const u16;
-            type LPWSTR = *mut u16;
-
-            const MAX_PATH: u32 = 260;
-            const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
-
-            extern "system" {
-                fn GetModuleHandleW(lpModuleName: LPCWSTR) -> HMODULE;
-                fn GetModuleFileNameW(hModule: HMODULE, lpFilename: LPWSTR, nSize: DWORD) -> DWORD;
-                fn GetLastError() -> DWORD;
-            }
-
-            unsafe {
-                eprintln!("Calling GetModuleHandleW");
-                let module = GetModuleHandleW(ptr::null());
-                if module.is_null() {
-                    eprintln!("GetModuleHandleW returned null");
-                    return None;
-                }
-
-                let mut buffer_size = MAX_PATH;
-                loop {
-                    eprintln!("Entering loop with buffer_size: {}", buffer_size);
-                    let mut buffer = Vec::<u16>::with_capacity(buffer_size as usize);
-                    eprintln!("Calling GetModuleFileNameW");
-                    let result = GetModuleFileNameW(module, buffer.as_mut_ptr(), buffer_size);
-
-                    if result == 0 {
-                        eprintln!("GetModuleFileNameW returned 0");
-                        return None;
-                    }
-
-                    if result < buffer_size {
-                        eprintln!("GetModuleFileNameW succeeded with result: {}", result);
-                        buffer.set_len(result as usize);
-                        let os_string = OsString::from_wide(&buffer);
-                        let string = os_string.to_string_lossy().into_owned();
-                        eprintln!("Returning string: {}", string);
-                        return Some(string);
-                    }
-
-                    if GetLastError() == ERROR_INSUFFICIENT_BUFFER {
-                        eprintln!("Buffer insufficient, doubling size");
-                        buffer_size *= 2;
-                    } else {
-                        eprintln!("Unexpected error: {}", GetLastError());
-                        return None;
-                    }
-                }
-            }
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        fn get_shared_object_name() -> Option<String> {
             None
         }
 
@@ -486,7 +408,6 @@ macro_rules! compatibility_check {
             len
         }
 
-        #[cfg(unix)]
         #[ctor]
         fn check_compatibility() {
             eprintln!("Entering check_compatibility function");
@@ -682,8 +603,14 @@ macro_rules! compatibility_check {
             eprintln!("Panicking with error message");
             panic!("{}", error_message);
         }
+    };
+}
 
-        /// compatibility checks are not supported on Windows
+#[cfg(all(not(unix), feature = "import-globals"))]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {
+        /// compatibility checks are only supported on unix-like system
     };
 }
 

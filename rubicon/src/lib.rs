@@ -330,7 +330,7 @@ macro_rules! compatibility_check {
         use std::env;
         use $crate::ctor::ctor;
 
-        extern "C" {
+        extern "Rust" {
             #[link_name = concat!(env!("CARGO_PKG_NAME"), "_compatibility_info")]
             static COMPATIBILITY_INFO: &'static [(&'static str, &'static str)];
         }

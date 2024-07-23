@@ -368,9 +368,9 @@ macro_rules! compatibility_check {
 
             if !missing.is_empty() || !extra.is_empty() {
                 let mut error_message = String::new();
-                error_message.push_str("\n\x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\n");
+                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
                 error_message.push_str(&format!(" 💀 Compatibility mismatch for module \x1b[31m{}\x1b[0m", env!("CARGO_PKG_NAME")));
-                error_message.push_str("\n\x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\n\n");
+                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n\n");
 
                 error_message.push_str(&format!("The crate '{}' doesn't have the exact same cargo features enabled in the main binary and in a module being loaded\n\n", red(env!("CARGO_PKG_NAME"))));
 
@@ -380,7 +380,7 @@ macro_rules! compatibility_check {
                 let column_width = max_exported_len.max(max_ref_len);
 
                 error_message.push_str(&format!("{:<width$}    {:<width$}\n", "Present in binary", "Expected by this module", width = column_width));
-                error_message.push_str(&format!("{:-<width$}    {:-<width$}\n", "", "", width = column_width));
+                error_message.push_str(&format!("{:━<width$}    {:━<width$}\n", "", "", width = column_width));
 
                 let mut i = 0;
                 let mut j = 0;
@@ -442,12 +442,56 @@ macro_rules! compatibility_check {
                     }
                 }
 
-                error_message.push_str("\nRefusing to proceed as this could cause memory corruption.");
-                error_message.push_str("\n\n  > 📝 \x1b[34mNote:\x1b[0m To fix this issue, rebuild this module with the same cargo features");
-                error_message.push_str(&format!("\n  > as the main binary. Note that the {} dependency might be transitive", red(env!("CARGO_PKG_NAME"))));
-                error_message.push_str("\n  > (ie. pulled indirectly by another dependency).");
-                error_message.push_str(&format!("\n  > Run `cargo tree -i {}` to figure out why you even have it.", red(env!("CARGO_PKG_NAME"))));
-                error_message.push_str("\n\n\x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\n\n");
+                let transitive_line = format!("main binary. Note that the {} dependency might be transitive", red(env!("CARGO_PKG_NAME")));
+                let cargo_tree_line = format!("Run `cargo tree -i {}` to figure out why you even have it.", red(env!("CARGO_PKG_NAME")));
+
+                let lines = vec![
+                    "Refusing to proceed as this could cause memory corruption.",
+                    "",
+                    "📝 \x1b[34mNote:\x1b[0m",
+                    "To fix this issue, rebuild this module with the same cargo features as the",
+                    &transitive_line,
+                    "(i.e., pulled indirectly by another dependency).",
+                    "",
+                    &cargo_tree_line,
+                ];
+
+                // Helper function to count visible characters (ignoring ANSI escapes)
+                fn visible_len(s: &str) -> usize {
+                    let mut len = 0;
+                    let mut in_escape = false;
+                    for c in s.chars() {
+                        if c == '\x1b' {
+                            in_escape = true;
+                        } else if in_escape {
+                            if c.is_alphabetic() {
+                                in_escape = false;
+                            }
+                        } else {
+                            len += 1;
+                        }
+                    }
+                    len
+                }
+
+                let max_width = lines.iter().map(|line| visible_len(line)).max().unwrap_or(0);
+                let box_width = max_width + 4; // Add 4 for left and right borders and spaces
+
+                error_message.push_str("\n");
+                error_message.push_str(&format!("┌{}┐\n", "─".repeat(box_width - 2)));
+
+                for line in lines {
+                    if line.is_empty() {
+                        error_message.push_str(&format!("│{}│\n", " ".repeat(box_width - 2)));
+                    } else {
+                        let visible_line_len = visible_len(line);
+                        let padding = " ".repeat(box_width - 2 - visible_line_len);
+                        error_message.push_str(&format!("│ {}{} │\n", line, padding));
+                    }
+                }
+
+                error_message.push_str(&format!("└{}┘\n", "─".repeat(box_width - 2)));
+                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n\n");
 
                 panic!("{}", error_message);
             }

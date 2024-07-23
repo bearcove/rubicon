@@ -2,7 +2,7 @@ import { spawn, execSync } from "child_process";
 import chalk from "chalk";
 import os from "os";
 import { existsSync } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
 
 let ENV_VARS = {};
 
@@ -37,16 +37,17 @@ function setEnvVariables() {
 // Helper function to run a command and capture output
 function runCommand(command) {
   try {
+    let env = {
+      SOPRINTLN: "1",
+      PATH: process.env.PATH,
+      ...ENV_VARS,
+    };
+    console.log("Running with env: ", env);
     const child = spawn(command, [], {
       shell: true,
       stdio: ["inherit", "pipe", "pipe"],
-      env: {
-        SOPRINTLN: "1",
-        PATH: process.env.PATH,
-        ...ENV_VARS,
-      },
+      env,
     });
-    console.log("Set ENV_VARS to: ", ENV_VARS);
 
     let output = "";
 
@@ -86,67 +87,85 @@ function checkFeatureMismatch(output) {
 const testCases = [
   {
     name: "Tests pass (debug)",
-    command: "cargo run --manifest-path test-crates/samplebin/Cargo.toml",
+    buildCommand:
+      "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand: "./test-crates/samplebin/target/debug/samplebin",
     expectedResult: "success",
   },
   {
     name: "Tests pass (release)",
-    command:
-      "cargo run --manifest-path test-crates/samplebin/Cargo.toml --release",
+    buildCommand:
+      "cargo build --manifest-path test-crates/samplebin/Cargo.toml --release",
+    runCommand: "./test-crates/samplebin/target/release/samplebin",
     expectedResult: "success",
   },
   {
     name: "Bin stable, mod_a nightly (should fail)",
-    command:
-      "cargo +stable run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=nightly",
+    buildCommand:
+      "cargo +stable build --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand:
+      "./test-crates/samplebin/target/debug/samplebin --channel:mod_a=nightly",
     expectedResult: "fail",
     checkFeatureMismatch: true,
   },
   {
     name: "Bin nightly, mod_a stable (should fail)",
-    command:
-      "cargo +nightly run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=stable",
+    buildCommand:
+      "cargo +nightly build --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand:
+      "./test-crates/samplebin/target/debug/samplebin --channel:mod_a=stable",
     expectedResult: "fail",
     checkFeatureMismatch: true,
   },
   {
     name: "All nightly (should work)",
-    command:
-      "cargo +nightly run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=nightly --channel:mod_b=nightly",
+    buildCommand:
+      "cargo +nightly build --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand:
+      "./test-crates/samplebin/target/debug/samplebin --channel:mod_a=nightly --channel:mod_b=nightly",
     expectedResult: "success",
   },
   {
     name: "Bin has mokio-timer feature (should fail)",
-    command:
-      "cargo run --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml",
+    buildCommand:
+      "cargo build --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand: "./test-crates/samplebin/target/debug/samplebin",
     expectedResult: "fail",
     checkFeatureMismatch: true,
   },
   {
     name: "mod_a has mokio-timer feature (should fail)",
-    command:
-      "cargo run --manifest-path test-crates/mod_a/Cargo.toml -- --features:mod_a=mokio/timer",
+    buildCommand:
+      "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand:
+      "./test-crates/samplebin/target/debug/samplebin --features:mod_a=mokio/timer",
     expectedResult: "fail",
     checkFeatureMismatch: true,
   },
   {
     name: "mod_b has mokio-timer feature (should fail)",
-    command:
-      "cargo run --manifest-path test-crates/mod_b/Cargo.toml -- --features:mod_b=mokio/timer",
+    buildCommand:
+      "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand:
+      "./test-crates/samplebin/target/debug/samplebin --features:mod_b=mokio/timer",
     expectedResult: "fail",
     checkFeatureMismatch: true,
   },
   {
     name: "all mods have mokio-timer feature (should fail)",
-    command:
-      "cargo run --manifest-path test-crates/samplebin/Cargo.toml -- --features:mod_a=mokio/timer --features:mod_b=mokio/timer",
+    buildCommand:
+      "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand:
+      "./test-crates/samplebin/target/debug/samplebin --features:mod_a=mokio/timer --features:mod_b=mokio/timer",
     expectedResult: "fail",
     checkFeatureMismatch: true,
   },
   {
     name: "bin and mods have mokio-timer feature (should work)",
-    command:
-      "cargo run --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml -- --features:mod_a=mokio/timer --features:mod_b=mokio/timer",
+    buildCommand:
+      "cargo build --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml",
+    runCommand:
+      "./test-crates/samplebin/target/debug/samplebin --features:mod_a=mokio/timer --features:mod_b=mokio/timer",
     expectedResult: "success",
   },
 ];
@@ -182,7 +201,16 @@ async function runTests() {
   console.log(chalk.blue("Running tests..."));
   for (const [index, test] of testCases.entries()) {
     console.log(chalk.yellow(`\nRunning test ${index + 1}: ${test.name}`));
-    const { success, output } = await runCommand(test.command);
+
+    console.log(chalk.cyan("Building..."));
+    const buildResult = await runCommand(test.buildCommand);
+    if (!buildResult.success) {
+      console.log(chalk.red("Build failed. Exiting tests."));
+      process.exit(1);
+    }
+
+    console.log(chalk.cyan("Running..."));
+    const { success, output } = await runCommand(test.runCommand);
 
     if (test.expectedResult === "success" && success) {
       console.log(chalk.green("Test passed as expected."));
@@ -197,6 +225,7 @@ async function runTests() {
             "Test failed, but not with the expected feature mismatch error.",
           ),
         );
+        process.exit(1);
       }
     } else {
       console.log(
@@ -204,8 +233,11 @@ async function runTests() {
           `Test result unexpected. Expected ${test.expectedResult}, but got ${success ? "success" : "failure"}.`,
         ),
       );
+      process.exit(1);
     }
   }
+
+  console.log(chalk.green("All tests passed successfully."));
 }
 
 // Run the tests

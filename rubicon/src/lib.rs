@@ -610,7 +610,7 @@ macro_rules! compatibility_check {
 #[macro_export]
 macro_rules! compatibility_check {
     ($($feature:tt)*) => {
-        /// compatibility checks are only supported on unix-like system
+        // compatibility checks are only supported on unix-like system
     };
 }
 

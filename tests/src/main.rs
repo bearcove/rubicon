@@ -20,7 +20,7 @@ impl EnvVars {
     }
 }
 
-fn set_env_variables() -> EnvVars {
+fn set_env_variables(git_root: &Path) -> EnvVars {
     let mut env_vars = EnvVars::new();
 
     let rust_sysroot = Command::new("rustc")
@@ -41,6 +41,8 @@ fn set_env_variables() -> EnvVars {
         .to_string();
 
     let platform = env::consts::OS;
+    let debug_lib_path = git_root.join("test-crates/samplebin/target/debug");
+
     match platform {
         "macos" => {
             println!("🍎 Detected macOS");
@@ -55,8 +57,11 @@ fn set_env_variables() -> EnvVars {
             env_vars.set(
                 "PATH",
                 format!(
-                    "{};{}/lib;{}/lib",
-                    current_path, rust_sysroot, rust_nightly_sysroot
+                    "{};{}/lib;{}/lib;{}",
+                    current_path,
+                    rust_sysroot,
+                    rust_nightly_sysroot,
+                    debug_lib_path.display()
                 ),
             );
         }
@@ -64,7 +69,12 @@ fn set_env_variables() -> EnvVars {
             println!("🐧 Detected Linux");
             env_vars.set(
                 "LD_LIBRARY_PATH",
-                format!("{}/lib:{}/lib", rust_sysroot, rust_nightly_sysroot),
+                format!(
+                    "{}/lib:{}/lib:{}",
+                    rust_sysroot,
+                    rust_nightly_sysroot,
+                    debug_lib_path.display()
+                ),
             );
         }
         _ => {
@@ -310,32 +320,25 @@ static TEST_CASES: &[TestCase] = &[
 
 fn run_tests() -> io::Result<()> {
     println!("\n🚀 \x1b[1;36mChanging working directory to Git root...\x1b[0m");
-    let mut current_dir = env::current_dir()?;
+    let mut git_root = env::current_dir()?;
 
-    while !Path::new(&current_dir).join(".git").exists() {
-        if let Some(parent) = current_dir.parent() {
-            current_dir = parent.to_path_buf();
+    while !Path::new(&git_root).join(".git").exists() {
+        if let Some(parent) = git_root.parent() {
+            git_root = parent.to_path_buf();
         } else {
             eprintln!("❌ \x1b[1;31mGit root not found. Exiting.\x1b[0m");
             std::process::exit(1);
         }
     }
 
-    env::set_current_dir(&current_dir)?;
+    env::set_current_dir(&git_root)?;
     println!(
         "📂 \x1b[1;32mChanged working directory to:\x1b[0m {}",
-        current_dir.display()
+        git_root.display()
     );
 
-    println!("\n🔍 \x1b[1;35mChecking Rust version and toolchain...\x1b[0m");
-    println!("🦀 \x1b[1;33mrustc --version:\x1b[0m");
-    run_command(&["rustc", "--version"], &EnvVars::new())?;
-    println!("\n🔧 \x1b[1;33mrustup which rustc:\x1b[0m");
-    run_command(&["rustup", "which", "rustc"], &EnvVars::new())?;
-    println!();
-
     println!("🌟 \x1b[1;36mSetting up environment variables...\x1b[0m");
-    let env_vars = set_env_variables();
+    let env_vars = set_env_variables(&git_root);
 
     println!("🌙 \x1b[1;34mInstalling nightly Rust...\x1b[0m");
     run_command(&["rustup", "toolchain", "add", "nightly"], &env_vars)?;

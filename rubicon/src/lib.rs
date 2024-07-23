@@ -334,7 +334,7 @@ macro_rules! compatibility_check {
 
         #[ctor]
         fn check_compatibility() {
-            let ref_compatibility_info: &[(&str, &str)] = &[
+            let imported: &[(&str, &str)] = &[
                 ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
                 ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
                 $($feature)*
@@ -342,8 +342,8 @@ macro_rules! compatibility_check {
 
             let exported = unsafe { COMPATIBILITY_INFO };
 
-            let missing: Vec<_> = ref_compatibility_info.iter().filter(|&item| !exported.contains(item)).collect();
-            let extra: Vec<_> = exported.iter().filter(|&item| !ref_compatibility_info.contains(item)).collect();
+            let missing: Vec<_> = imported.iter().filter(|&item| !exported.contains(item)).collect();
+            let extra: Vec<_> = exported.iter().filter(|&item| !imported.contains(item)).collect();
 
             if !missing.is_empty() || !extra.is_empty() {
                 let mut error_message = String::new();
@@ -356,32 +356,76 @@ macro_rules! compatibility_check {
                 error_message.push_str("in\n");
                 error_message.push_str("\n");
 
-                error_message.push_str("Present in binary                  Expected by this module\n");
-                error_message.push_str("------------------------------     ------------------------------\n");
+                // Compute max lengths for alignment
+                let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
+                let max_ref_len = imported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
+                let column_width = max_exported_len.max(max_ref_len);
+
+                error_message.push_str(&format!("Present in binary{:width$}Expected by this module\n", "", width = column_width - 17 + 4));
+                error_message.push_str(&format!("{:-<width$}    {:-<width$}\n", "", "", width = column_width));
 
                 let mut i = 0;
                 let mut j = 0;
 
-                while i < exported.len() || j < ref_compatibility_info.len() {
-                    if i < exported.len() && (j >= ref_compatibility_info.len() || exported[i].0 < ref_compatibility_info[j].0) {
-                        // Item only in exported
-                        error_message.push_str(&format!("\x1b[31m{:<30}\x1b[0m     \n", format!("{}={}", exported[i].0, exported[i].1)));
-                        i += 1;
-                    } else if j < ref_compatibility_info.len() && (i >= exported.len() || ref_compatibility_info[j].0 < exported[i].0) {
-                        // Item only in ref_compatibility_info
-                        error_message.push_str(&format!("                                \x1b[31m{:<30}\x1b[0m\n", format!("{}={}", ref_compatibility_info[j].0, ref_compatibility_info[j].1)));
-                        j += 1;
-                    } else {
-                        // Item in both
-                        let (name, value) = exported[i];
-                        let expected = ref_compatibility_info[j];
-                        let color = if (name, value) == expected { "\x1b[32m" } else { "\x1b[31m" };
-                        error_message.push_str(&format!("{}{:<30}\x1b[0m     {}{:<30}\x1b[0m\n",
-                            color, format!("{}={}", name, value),
-                            color, format!("{}={}", expected.0, expected.1)
-                        ));
-                        i += 1;
-                        j += 1;
+                struct AnsiEscape<D: std::fmt::Display>(u64, D);
+
+                impl<D: std::fmt::Display> std::fmt::Display for AnsiEscape<D> {
+                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(f, "\x1b[{}m{}\x1b[0m", self.0, self.1)
+                    }
+                }
+
+                fn blue<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                    AnsiEscape(34, d)
+                }
+                fn green<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                    AnsiEscape(32, d)
+                }
+                fn red<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                    AnsiEscape(31, d)
+                }
+
+                // Gather all unique keys
+                let mut all_keys: Vec<&str> = Vec::new();
+                for (key, _) in exported.iter() {
+                    if !all_keys.contains(key) {
+                        all_keys.push(key);
+                    }
+                }
+                for (key, _) in imported.iter() {
+                    if !all_keys.contains(key) {
+                        all_keys.push(key);
+                    }
+                }
+
+                for key in all_keys.iter() {
+                    let exported_value = exported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
+                    let imported_value = imported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
+
+                    match (exported_value, imported_value) {
+                        (Some(value), Some(expected_value)) => {
+                            // Item in both
+                            let color = if value == expected_value { green } else { red };
+                            let left_item = format!("{}={}", blue(key), color(value));
+                            let right_item = format!("{}={}", blue(key), color(expected_value));
+                            error_message.push_str(&format!("{:<width$}    {:<width$}\n",
+                                left_item, right_item, width = column_width
+                            ));
+                        }
+                        (Some(value), None) => {
+                            // Item only in exported
+                            let item = format!("{}={}", blue(key), red(value));
+                            error_message.push_str(&format!("{:<width$}    \n", item, width = column_width));
+                        }
+                        (None, Some(value)) => {
+                            // Item only in imported
+                            let item = format!("{}={}", blue(key), red(value));
+                            error_message.push_str(&format!("{:<width$}    {:<width$}\n", "", item, width = column_width));
+                        }
+                        (None, None) => {
+                            // This should never happen as the key is from all_keys
+                            unreachable!()
+                        }
                     }
                 }
 

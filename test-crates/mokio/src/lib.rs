@@ -2,10 +2,14 @@ use std::sync::{atomic::AtomicU64, Arc, Mutex};
 
 rubicon::compatibility_check! {
     ("mokio_pkg_version", env!("CARGO_PKG_VERSION")),
+
     #[cfg(not(feature = "timer"))]
     ("timer", "disabled"),
     #[cfg(feature = "timer")]
     ("timer", "enabled"),
+
+    #[cfg(feature = "timer")]
+    ("has_timer", "1"),
 }
 
 #[derive(Default)]

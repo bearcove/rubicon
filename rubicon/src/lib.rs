@@ -345,16 +345,34 @@ macro_rules! compatibility_check {
             let missing: Vec<_> = imported.iter().filter(|&item| !exported.contains(item)).collect();
             let extra: Vec<_> = exported.iter().filter(|&item| !imported.contains(item)).collect();
 
+            struct AnsiEscape<D: std::fmt::Display>(u64, D);
+
+            impl<D: std::fmt::Display> std::fmt::Display for AnsiEscape<D> {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "\x1b[{}m{}\x1b[0m", self.0, self.1)
+                }
+            }
+
+            fn blue<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                AnsiEscape(34, d)
+            }
+            fn green<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                AnsiEscape(32, d)
+            }
+            fn red<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                AnsiEscape(31, d)
+            }
+            fn grey<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                AnsiEscape(90, d)
+            }
+
             if !missing.is_empty() || !extra.is_empty() {
                 let mut error_message = String::new();
-                error_message.push_str("\n\x1b[31m=========================================================\x1b[0m\n");
-                error_message.push_str(&format!("   💀 Compatibility mismatch for module \x1b[31m{}\x1b[0m", env!("CARGO_PKG_NAME")));
-                error_message.push_str("\n\x1b[31m=========================================================\x1b[0m\n\n");
+                error_message.push_str("\n\x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\n");
+                error_message.push_str(&format!(" 💀 Compatibility mismatch for module \x1b[31m{}\x1b[0m", env!("CARGO_PKG_NAME")));
+                error_message.push_str("\n\x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\n\n");
 
-                error_message.push_str("The loaded shared object doesn't have the exact same cargo \n");
-                error_message.push_str("features and rust toolchain as the binary it's being loaded \n");
-                error_message.push_str("in\n");
-                error_message.push_str("\n");
+                error_message.push_str(&format!("The crate '{}' doesn't have the exact same cargo features enabled in the main binary and in a module being loaded\n\n", red(env!("CARGO_PKG_NAME"))));
 
                 // Compute max lengths for alignment
                 let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
@@ -366,27 +384,6 @@ macro_rules! compatibility_check {
 
                 let mut i = 0;
                 let mut j = 0;
-
-                struct AnsiEscape<D: std::fmt::Display>(u64, D);
-
-                impl<D: std::fmt::Display> std::fmt::Display for AnsiEscape<D> {
-                    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(f, "\x1b[{}m{}\x1b[0m", self.0, self.1)
-                    }
-                }
-
-                fn blue<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                    AnsiEscape(34, d)
-                }
-                fn green<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                    AnsiEscape(32, d)
-                }
-                fn red<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                    AnsiEscape(31, d)
-                }
-                fn grey<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                    AnsiEscape(90, d)
-                }
 
                 // Gather all unique keys
                 let mut all_keys: Vec<&str> = Vec::new();
@@ -408,25 +405,35 @@ macro_rules! compatibility_check {
                     match (exported_value, imported_value) {
                         (Some(value), Some(expected_value)) => {
                             // Item in both
-                            let color = if value == expected_value { green } else { red };
-                            let left_item = format!("{}{}{}", blue(key), grey("="), color(value));
-                            let right_item = format!("{}{}{}", blue(key), grey("="), color(expected_value));
+                            if value == expected_value {
+                                let left_item = format!("{}{}{}", grey(key), grey("="), grey(value));
+                                let right_item = format!("{}{}{}", grey(key), grey("="), grey(expected_value));
+                                let left_item_len = key.len() + value.len() + 1; // +1 for '='
+                                let padding = " ".repeat(column_width.saturating_sub(left_item_len));
+                                error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
+                            } else {
+                                let left_item = format!("{}{}{}", blue(key), grey("="), green(value));
+                                let right_item = format!("{}{}{}", blue(key), grey("="), red(expected_value));
+                                let left_item_len = key.len() + value.len() + 1; // +1 for '='
+                                let padding = " ".repeat(column_width.saturating_sub(left_item_len));
+                                error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
+                            }
+                        }
+                        (Some(value), None) => {
+                            // Item only in exported
+                            let left_item = format!("{}{}{}", green(key), grey("="), green(value));
+                            let right_item = format!("{}", red("MISSING!"));
                             let left_item_len = key.len() + value.len() + 1; // +1 for '='
                             let padding = " ".repeat(column_width.saturating_sub(left_item_len));
                             error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
                         }
-                        (Some(value), None) => {
-                            // Item only in exported
-                            let item = format!("{}{}{}", blue(key), grey("="), red(value));
-                            let item_len = key.len() + value.len() + 1; // +1 for '='
-                            let padding = " ".repeat(column_width.saturating_sub(item_len));
-                            error_message.push_str(&format!("{}{}\n", item, padding));
-                        }
                         (None, Some(value)) => {
                             // Item only in imported
-                            let item = format!("{}{}{}", blue(key), grey("="), red(value));
-                            let padding = " ".repeat(column_width);
-                            error_message.push_str(&format!("{}    {}\n", padding, item));
+                            let left_item = format!("{}", red("MISSING!"));
+                            let right_item = format!("{}{}{}", green(key), grey("="), green(value));
+                            let left_item_len = "MISSING!".len();
+                            let padding = " ".repeat(column_width.saturating_sub(left_item_len));
+                            error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
                         }
                         (None, None) => {
                             // This should never happen as the key is from all_keys
@@ -434,6 +441,13 @@ macro_rules! compatibility_check {
                         }
                     }
                 }
+
+                error_message.push_str("\nRefusing to proceed as this could cause memory corruption.");
+                error_message.push_str("\n\n  > 📝 \x1b[34mNote:\x1b[0m To fix this issue, rebuild this module with the same cargo features");
+                error_message.push_str(&format!("\n  > as the main binary. Note that the {} dependency might be transitive", red(env!("CARGO_PKG_NAME"))));
+                error_message.push_str("\n  > (ie. pulled indirectly by another dependency).");
+                error_message.push_str(&format!("\n  > Run `cargo tree -i {}` to figure out why you even have it.", red(env!("CARGO_PKG_NAME"))));
+                error_message.push_str("\n\n\x1b[31m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\x1b[0m\n\n");
 
                 panic!("{}", error_message);
             }

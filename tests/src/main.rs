@@ -384,10 +384,15 @@ fn run_tests() -> io::Result<()> {
             .join("samplebin")
             .join("target")
             .join(profile);
-        let (success, output) = run_command(
-            test.run_command,
-            &env_vars.with_additional_library_path(additional_path.to_string_lossy().into_owned()),
-        )?;
+        let env_vars =
+            env_vars.with_additional_library_path(additional_path.to_string_lossy().into_owned());
+
+        println!("\nEnvironment Variables Summary:");
+        env_vars.each_kv(|key, value| {
+            println!("{}: {}", key, value);
+        });
+
+        let (success, output) = run_command(test.run_command, &env_vars)?;
 
         match (test.expected_result, success) {
             ("success", true) => println!("✅ \x1b[1;32mTest passed as expected.\x1b[0m"),

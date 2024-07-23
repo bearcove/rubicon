@@ -335,15 +335,17 @@ macro_rules! compatibility_check {
             static COMPATIBILITY_INFO: &'static [(&'static str, &'static str)];
         }
 
-        use $crate::libc::{c_void, Dl_info};
-        use std::ffi::CStr;
-        use std::ptr;
 
-        extern "C" {
-            fn dladdr(addr: *const c_void, info: *mut Dl_info) -> i32;
-        }
-
+        #[cfg(unix)]
         fn get_shared_object_name() -> Option<String> {
+            use $crate::libc::{c_void, Dl_info};
+            use std::ffi::CStr;
+            use std::ptr;
+
+            extern "C" {
+                fn dladdr(addr: *const c_void, info: *mut Dl_info) -> i32;
+            }
+
             unsafe {
                 let mut info: Dl_info = std::mem::zeroed();
                 if dladdr(get_shared_object_name as *const c_void, &mut info) != 0 {
@@ -351,6 +353,71 @@ macro_rules! compatibility_check {
                     return Some(c_str.to_string_lossy().into_owned());
                 }
             }
+            None
+        }
+
+        #[cfg(windows)]
+        fn get_shared_object_name() -> Option<String> {
+            use std::mem::MaybeUninit;
+            use std::ptr;
+            use std::ffi::OsString;
+            use std::os::windows::ffi::OsStringExt;
+
+            #[allow(non_snake_case)]
+            #[repr(C)]
+            struct MODULEINFO {
+                lpBaseOfDll: *mut std::ffi::c_void,
+                SizeOfImage: u32,
+                EntryPoint: *mut std::ffi::c_void,
+            }
+
+            type HANDLE = *mut std::ffi::c_void;
+            type HMODULE = HANDLE;
+            type DWORD = u32;
+            type BOOL = i32;
+            type LPCWSTR = *const u16;
+            type LPWSTR = *mut u16;
+
+            const MAX_PATH: u32 = 260;
+            const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
+
+            extern "system" {
+                fn GetModuleHandleW(lpModuleName: LPCWSTR) -> HMODULE;
+                fn GetModuleFileNameW(hModule: HMODULE, lpFilename: LPWSTR, nSize: DWORD) -> DWORD;
+                fn GetLastError() -> DWORD;
+            }
+
+            unsafe {
+                let module = GetModuleHandleW(ptr::null());
+                if module.is_null() {
+                    return None;
+                }
+
+                let mut buffer_size = MAX_PATH;
+                loop {
+                    let mut buffer = Vec::<u16>::with_capacity(buffer_size as usize);
+                    let result = GetModuleFileNameW(module, buffer.as_mut_ptr(), buffer_size);
+
+                    if result == 0 {
+                        return None;
+                    }
+
+                    if result < buffer_size {
+                        buffer.set_len(result as usize);
+                        return Some(OsString::from_wide(&buffer).to_string_lossy().into_owned());
+                    }
+
+                    if GetLastError() == ERROR_INSUFFICIENT_BUFFER {
+                        buffer_size *= 2;
+                    } else {
+                        return None;
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        fn get_shared_object_name() -> Option<String> {
             None
         }
 

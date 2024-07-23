@@ -506,7 +506,7 @@ macro_rules! compatibility_check {
             }
 
             error_message.push_str("\nDifferent feature sets may result in different struct layouts, which\n");
-            error_message.push_str("would lead to memory corruption. Instead we're going to panic now.\n\n");
+            error_message.push_str("would lead to memory corruption. Instead, we're going to panic now.\n\n");
 
             error_message.push_str("More info: \x1b[4m\x1b[34mhttps://crates.io/crates/rubicon\x1b[0m\n");
 

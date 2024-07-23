@@ -22,16 +22,11 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-      - name: Run cargo command
+      - name: Add nightly
+        run: rustup toolchain add nightly
+      - name: Run tests runner
         run: |
-          cargo run --manifest-path test-crates/bin/Cargo.toml
+          cd tests/
+          cargo run
+        shell: bash
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
-      - name: Run cargo command (release)
-        run: |
-          cargo run --manifest-path test-crates/bin/Cargo.toml --release
-        continue-on-error: ${{ matrix.os == 'windows-latest' }}
-      - name: Run cargo command (release with SOPRINTLN=1)
-        if: matrix.os != 'windows-latest'
-        run: |
-          export SOPRINTLN=1
-          cargo run --manifest-path test-crates/bin/Cargo.toml --release

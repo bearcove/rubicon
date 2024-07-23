@@ -1,4 +1,34 @@
-use std::sync::atomic::AtomicU64;
+use std::sync::{atomic::AtomicU64, Arc, Mutex};
+
+rubicon::compatibility_check! {
+    ("mokio_pkg_version", env!("CARGO_PKG_VERSION")),
+
+    #[cfg(not(feature = "timer"))]
+    ("timer", "disabled"),
+    #[cfg(feature = "timer")]
+    ("timer", "enabled"),
+
+    #[cfg(not(feature = "timer"))]
+    ("timer_is_disabled", "1"),
+}
+
+#[derive(Default)]
+#[cfg(feature = "timer")]
+struct TimerInternals {
+    #[allow(dead_code)]
+    random_stuff: [u64; 4],
+}
+
+#[derive(Default)]
+pub struct Runtime {
+    #[cfg(feature = "timer")]
+    #[allow(dead_code)]
+    timer: TimerInternals,
+
+    // this field is second on purpose so that it'll be offset
+    // if the feature is enabled/disabled
+    pub counter: u64,
+}
 
 rubicon::process_local! {
     pub static MOKIO_PL1: AtomicU64 = AtomicU64::new(0);
@@ -10,7 +40,7 @@ rubicon::process_local! {
 
 rubicon::thread_local! {
     pub static MOKIO_TL1: AtomicU64 = AtomicU64::new(0);
-    pub static MOKIO_TL2: AtomicU64 = AtomicU64::new(0);
+    pub static MOKIO_TL2: Arc<Mutex<Runtime>> = Arc::new(Mutex::new(Runtime::default()));
 }
 
 pub fn inc_dangerous() -> u64 {

@@ -36,6 +36,18 @@ compile_error!("The features `export-globals` and `import-globals` are mutually 
 #[cfg(any(feature = "export-globals", feature = "import-globals"))]
 pub use paste::paste;
 
+#[cfg(feature = "import-globals")]
+pub use ctor;
+
+#[cfg(feature = "import-globals")]
+pub use libc;
+
+#[cfg(any(feature = "export-globals", feature = "import-globals"))]
+pub const RUBICON_RUSTC_VERSION: &str = env!("RUBICON_RUSTC_VERSION");
+
+#[cfg(any(feature = "export-globals", feature = "import-globals"))]
+pub const RUBICON_TARGET_TRIPLE: &str = env!("RUBICON_TARGET_TRIPLE");
+
 //==============================================================================
 // Wrappers
 //==============================================================================
@@ -287,4 +299,323 @@ macro_rules! process_local_inner_mut {
             }
         }
     };
+}
+
+//==============================================================================
+// Compatibility check
+//==============================================================================
+
+#[cfg(feature = "export-globals")]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {
+        use std::env;
+
+        $crate::paste! {
+            #[no_mangle]
+            #[export_name = concat!(env!("CARGO_PKG_NAME"), "_compatibility_info")]
+            static __RUBICON_COMPATIBILITY_INFO_: &'static [(&'static str, &'static str)] = &[
+                ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
+                ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
+                $($feature)*
+            ];
+        }
+    };
+}
+
+#[cfg(all(unix, feature = "import-globals"))]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {
+        use std::env;
+        use $crate::ctor::ctor;
+
+        extern "Rust" {
+            #[link_name = concat!(env!("CARGO_PKG_NAME"), "_compatibility_info")]
+            static COMPATIBILITY_INFO: &'static [(&'static str, &'static str)];
+        }
+
+
+        fn get_shared_object_name() -> Option<String> {
+            use $crate::libc::{c_void, Dl_info};
+            use std::ffi::CStr;
+            use std::ptr;
+
+            extern "C" {
+                fn dladdr(addr: *const c_void, info: *mut Dl_info) -> i32;
+            }
+
+            unsafe {
+                let mut info: Dl_info = std::mem::zeroed();
+                if dladdr(get_shared_object_name as *const c_void, &mut info) != 0 {
+                    let c_str = CStr::from_ptr(info.dli_fname);
+                    return Some(c_str.to_string_lossy().into_owned());
+                }
+            }
+            None
+        }
+
+        struct AnsiEscape<D: std::fmt::Display>(u64, D);
+
+        impl<D: std::fmt::Display> std::fmt::Display for AnsiEscape<D> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let inner = format!("\x1b[{}m{}\x1b[0m", self.0, self.1);
+                f.pad(&inner)
+            }
+        }
+
+        #[derive(Clone, Copy)]
+        struct AnsiColor(u64);
+
+        impl AnsiColor {
+            const BLUE: AnsiColor = AnsiColor(34);
+            const GREEN: AnsiColor = AnsiColor(32);
+            const RED: AnsiColor = AnsiColor(31);
+            const GREY: AnsiColor = AnsiColor(37);
+        }
+
+        fn colored<D: std::fmt::Display>(color: AnsiColor, d: D) -> AnsiEscape<D> {
+            AnsiEscape(color.0, d)
+        }
+        fn blue<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(34, d)
+        }
+        fn green<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(32, d)
+        }
+        fn red<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(31, d)
+        }
+        fn grey<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(35, d)
+        }
+
+        // Helper function to count visible characters (ignoring ANSI escapes)
+        fn visible_len(s: &str) -> usize {
+            let mut len = 0;
+            let mut in_escape = false;
+            for c in s.chars() {
+                if c == '\x1b' {
+                    in_escape = true;
+                } else if in_escape {
+                    if c.is_alphabetic() {
+                        in_escape = false;
+                    }
+                } else {
+                    len += 1;
+                }
+            }
+            len
+        }
+
+        #[ctor]
+        fn check_compatibility() {
+            eprintln!("Entering check_compatibility function");
+            let imported: &[(&str, &str)] = &[
+                ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
+                ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
+                $($feature)*
+            ];
+            let exported = unsafe { COMPATIBILITY_INFO };
+
+            eprintln!("Comparing imported and exported compatibility info");
+            let missing: Vec<_> = imported.iter().filter(|&item| !exported.contains(item)).collect();
+            let extra: Vec<_> = exported.iter().filter(|&item| !imported.contains(item)).collect();
+
+            if missing.is_empty() && extra.is_empty() {
+                eprintln!("No compatibility issues found");
+                // all good
+                return;
+            }
+
+            eprintln!("Compatibility issues detected, preparing error message");
+            let so_name = get_shared_object_name().unwrap_or("unknown_so".to_string());
+            // get only the last bit of the path
+            let so_name = so_name.rsplit('/').next().unwrap_or("unknown_so");
+
+            let exe_name = std::env::current_exe().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).unwrap_or_else(|_| "unknown_exe".to_string());
+
+            let mut error_message = String::new();
+            error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
+            error_message.push_str(&format!(" 💀 Feature mismatch for crate \x1b[31m{}\x1b[0m\n\n", env!("CARGO_PKG_NAME")));
+
+            error_message.push_str(&format!("Loading {} would mix different configurations of the {} crate.\n\n", blue(so_name), red(env!("CARGO_PKG_NAME"))));
+
+            eprintln!("Calculating column widths for grid display");
+            // Compute max lengths for alignment
+            let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
+            let max_ref_len = imported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
+            let column_width = max_exported_len.max(max_ref_len);
+
+            // Gather all unique keys
+            let mut all_keys: Vec<&str> = Vec::new();
+            for (key, _) in exported.iter() {
+                if !all_keys.contains(key) {
+                    all_keys.push(key);
+                }
+            }
+            for (key, _) in imported.iter() {
+                if !all_keys.contains(key) {
+                    all_keys.push(key);
+                }
+            }
+
+            struct Grid {
+                rows: Vec<Vec<String>>,
+                column_widths: Vec<usize>,
+            }
+
+            impl Grid {
+                fn new() -> Self {
+                    Grid {
+                        rows: Vec::new(),
+                        column_widths: Vec::new(),
+                    }
+                }
+
+                fn add_row(&mut self, row: Vec<String>) {
+                    if self.column_widths.len() < row.len() {
+                        self.column_widths.resize(row.len(), 0);
+                    }
+                    for (i, cell) in row.iter().enumerate() {
+                        self.column_widths[i] = self.column_widths[i].max(visible_len(cell));
+                    }
+                    self.rows.push(row);
+                }
+
+                fn write_to(&self, out: &mut String) {
+                    let total_width: usize = self.column_widths.iter().sum::<usize>() + self.column_widths.len() * 3 - 1;
+
+                    // Top border
+                    out.push_str(&format!("┌{}┐\n", "─".repeat(total_width)));
+
+                    for (i, row) in self.rows.iter().enumerate() {
+                        if i == 1 {
+                            // Separator after header
+                            out.push_str(&format!("╞{}╡\n", "═".repeat(total_width)));
+                        }
+
+                        for (j, cell) in row.iter().enumerate() {
+                            out.push_str("│ ");
+                            out.push_str(cell);
+                            out.push_str(&" ".repeat(self.column_widths[j] - visible_len(cell)));
+                            out.push_str(" ");
+                        }
+                        out.push_str("│\n");
+                    }
+
+                    // Bottom border
+                    out.push_str(&format!("└{}┘\n", "─".repeat(total_width)));
+                }
+            }
+
+            eprintln!("Creating grid for compatibility info display");
+            let mut grid = Grid::new();
+
+            // Add header
+            grid.add_row(vec!["Key".to_string(), format!("Binary {}", blue(&exe_name)), format!("Module {}", blue(so_name))]);
+
+            for key in all_keys.iter() {
+                let exported_value = exported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
+                let imported_value = imported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
+
+                let key_column = colored(AnsiColor::GREY, key).to_string();
+                let binary_column = format_column(imported_value.as_deref().copied(), exported_value.as_deref().copied(), AnsiColor::RED);
+                let module_column = format_column(exported_value.as_deref().copied(), imported_value.as_deref().copied(), AnsiColor::GREEN);
+
+                fn format_column(primary: Option<&str>, secondary: Option<&str>, highlight_color: AnsiColor) -> String {
+                    match primary {
+                        Some(value) => {
+                            if secondary.map_or(false, |v| v == value) {
+                                colored(AnsiColor::GREY, value).to_string()
+                            } else {
+                                colored(highlight_color, value).to_string()
+                            }
+                        },
+                        None => colored(AnsiColor::GREY, "∅").to_string(),
+                    }
+                }
+
+                grid.add_row(vec![key_column, binary_column, module_column]);
+            }
+
+            eprintln!("Writing grid to error message");
+            grid.write_to(&mut error_message);
+
+            struct MessageBox {
+                lines: Vec<String>,
+                max_width: usize,
+            }
+
+            impl MessageBox {
+                fn new() -> Self {
+                    MessageBox {
+                        lines: Vec::new(),
+                        max_width: 0,
+                    }
+                }
+
+                fn add_line(&mut self, line: String) {
+                    self.max_width = self.max_width.max(visible_len(&line));
+                    self.lines.push(line);
+                }
+
+                fn add_empty_line(&mut self) {
+                    self.lines.push(String::new());
+                }
+
+                fn write_to(&self, out: &mut String) {
+                    let box_width = self.max_width + 4;
+
+                    out.push_str("\n");
+                    out.push_str(&format!("┌{}┐\n", "─".repeat(box_width - 2)));
+
+                    for line in &self.lines {
+                        if line.is_empty() {
+                            out.push_str(&format!("│{}│\n", " ".repeat(box_width - 2)));
+                        } else {
+                            let visible_line_len = visible_len(line);
+                            let padding = " ".repeat(box_width - 4 - visible_line_len);
+                            out.push_str(&format!("│ {}{} │\n", line, padding));
+                        }
+                    }
+
+                    out.push_str(&format!("└{}┘", "─".repeat(box_width - 2)));
+                }
+            }
+
+            error_message.push_str("\nDifferent feature sets may result in different struct layouts, which\n");
+            error_message.push_str("would lead to memory corruption. Instead, we're going to panic now.\n\n");
+
+            error_message.push_str("More info: \x1b[4m\x1b[34mhttps://crates.io/crates/rubicon\x1b[0m\n");
+
+            eprintln!("Creating message box for additional information");
+            let mut message_box = MessageBox::new();
+            message_box.add_line(format!("To fix this issue, {} needs to enable", blue(so_name)));
+            message_box.add_line(format!("the same cargo features as {} for crate {}.", blue(&exe_name), red(env!("CARGO_PKG_NAME"))));
+            message_box.add_empty_line();
+            message_box.add_line("\x1b[34mHINT:\x1b[0m".to_string());
+            message_box.add_line(format!("Run `cargo tree -i {} -e features` from both.", red(env!("CARGO_PKG_NAME"))));
+
+            message_box.write_to(&mut error_message);
+            error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
+
+            eprintln!("Panicking with error message");
+            panic!("{}", error_message);
+        }
+    };
+}
+
+#[cfg(all(not(unix), feature = "import-globals"))]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {
+        // compatibility checks are only supported on unix-like system
+    };
+}
+
+#[cfg(not(any(feature = "export-globals", feature = "import-globals")))]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {};
 }

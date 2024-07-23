@@ -7,5 +7,7 @@ edition = "2021"
 rubicon = { path = "../../rubicon" }
 
 [features]
+default = []
+timer = []
 import-globals = ["rubicon/import-globals"]
 export-globals = ["rubicon/export-globals"]

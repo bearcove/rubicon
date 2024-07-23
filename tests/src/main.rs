@@ -81,14 +81,13 @@ fn set_env_variables() -> EnvVars {
     env_vars
 }
 
-fn run_command(command: &str, env_vars: &EnvVars) -> io::Result<(bool, String)> {
+fn run_command(command: &[&str], env_vars: &EnvVars) -> io::Result<(bool, String)> {
     use std::io::{BufRead, BufReader};
     use std::sync::mpsc;
     use std::thread;
 
-    let mut command_parts = command.split_whitespace();
-    let program = command_parts.next().expect("Command is empty");
-    let args: Vec<&str> = command_parts.collect();
+    let program = command[0];
+    let args = &command[1..];
 
     println!("Running command: {} {:?}", program, args);
 
@@ -145,146 +144,235 @@ fn run_command(command: &str, env_vars: &EnvVars) -> io::Result<(bool, String)> 
 }
 
 fn check_feature_mismatch(output: &str) -> bool {
-    output.contains("feature mismatch for crate")
+    output.contains("Feature mismatch for crate")
 }
 
 struct TestCase {
     name: &'static str,
-    build_command: &'static str,
-    run_command: &'static str,
+    build_command: &'static [&'static str],
+    run_command: &'static [&'static str],
     expected_result: &'static str,
     check_feature_mismatch: bool,
 }
 
+static TEST_CASES: &[TestCase] = &[
+    TestCase {
+        name: "Tests pass (debug)",
+        build_command: &[
+            "cargo",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &["./test-crates/samplebin/target/debug/samplebin"],
+        expected_result: "success",
+        check_feature_mismatch: false,
+    },
+    TestCase {
+        name: "Tests pass (release)",
+        build_command: &[
+            "cargo",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+            "--release",
+        ],
+        run_command: &["./test-crates/samplebin/target/release/samplebin"],
+        expected_result: "success",
+        check_feature_mismatch: false,
+    },
+    TestCase {
+        name: "Bin stable, mod_a nightly (should fail)",
+        build_command: &[
+            "cargo",
+            "+stable",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &[
+            "./test-crates/samplebin/target/debug/samplebin",
+            "--channel:mod_a=nightly",
+        ],
+        expected_result: "fail",
+        check_feature_mismatch: true,
+    },
+    TestCase {
+        name: "Bin nightly, mod_a stable (should fail)",
+        build_command: &[
+            "cargo",
+            "+nightly",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &[
+            "./test-crates/samplebin/target/debug/samplebin",
+            "--channel:mod_a=stable",
+        ],
+        expected_result: "fail",
+        check_feature_mismatch: true,
+    },
+    TestCase {
+        name: "All nightly (should work)",
+        build_command: &[
+            "cargo",
+            "+nightly",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &[
+            "./test-crates/samplebin/target/debug/samplebin",
+            "--channel:mod_a=nightly",
+            "--channel:mod_b=nightly",
+        ],
+        expected_result: "success",
+        check_feature_mismatch: false,
+    },
+    TestCase {
+        name: "Bin has mokio-timer feature (should fail)",
+        build_command: &[
+            "cargo",
+            "build",
+            "--features=exports/mokio-timer",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &["./test-crates/samplebin/target/debug/samplebin"],
+        expected_result: "fail",
+        check_feature_mismatch: true,
+    },
+    TestCase {
+        name: "mod_a has mokio-timer feature (should fail)",
+        build_command: &[
+            "cargo",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &[
+            "./test-crates/samplebin/target/debug/samplebin",
+            "--features:mod_a=mokio/timer",
+        ],
+        expected_result: "fail",
+        check_feature_mismatch: true,
+    },
+    TestCase {
+        name: "mod_b has mokio-timer feature (should fail)",
+        build_command: &[
+            "cargo",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &[
+            "./test-crates/samplebin/target/debug/samplebin",
+            "--features:mod_b=mokio/timer",
+        ],
+        expected_result: "fail",
+        check_feature_mismatch: true,
+    },
+    TestCase {
+        name: "all mods have mokio-timer feature (should fail)",
+        build_command: &[
+            "cargo",
+            "build",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &[
+            "./test-crates/samplebin/target/debug/samplebin",
+            "--features:mod_a=mokio/timer",
+            "--features:mod_b=mokio/timer",
+        ],
+        expected_result: "fail",
+        check_feature_mismatch: true,
+    },
+    TestCase {
+        name: "bin and mods have mokio-timer feature (should work)",
+        build_command: &[
+            "cargo",
+            "build",
+            "--features=exports/mokio-timer",
+            "--manifest-path",
+            "test-crates/samplebin/Cargo.toml",
+        ],
+        run_command: &[
+            "./test-crates/samplebin/target/debug/samplebin",
+            "--features:mod_a=mokio/timer",
+            "--features:mod_b=mokio/timer",
+        ],
+        expected_result: "success",
+        check_feature_mismatch: false,
+    },
+];
+
 fn run_tests() -> io::Result<()> {
-    println!("Changing working directory to Git root...");
+    println!("\n🚀 \x1b[1;36mChanging working directory to Git root...\x1b[0m");
     let mut current_dir = env::current_dir()?;
 
     while !Path::new(&current_dir).join(".git").exists() {
         if let Some(parent) = current_dir.parent() {
             current_dir = parent.to_path_buf();
         } else {
-            eprintln!("Git root not found. Exiting.");
+            eprintln!("❌ \x1b[1;31mGit root not found. Exiting.\x1b[0m");
             std::process::exit(1);
         }
     }
 
     env::set_current_dir(&current_dir)?;
-    println!("Changed working directory to: {}", current_dir.display());
+    println!(
+        "📂 \x1b[1;32mChanged working directory to:\x1b[0m {}",
+        current_dir.display()
+    );
 
-    println!("Checking Rust version and toolchain...");
-    println!("rustc --version:");
-    run_command("rustc --version", &EnvVars::new())?;
-    println!("\nrustup which rustc:");
-    run_command("rustup which rustc", &EnvVars::new())?;
+    println!("\n🔍 \x1b[1;35mChecking Rust version and toolchain...\x1b[0m");
+    println!("🦀 \x1b[1;33mrustc --version:\x1b[0m");
+    run_command(&["rustc", "--version"], &EnvVars::new())?;
+    println!("\n🔧 \x1b[1;33mrustup which rustc:\x1b[0m");
+    run_command(&["rustup", "which", "rustc"], &EnvVars::new())?;
     println!();
 
-    println!("Setting up environment variables...");
+    println!("🌟 \x1b[1;36mSetting up environment variables...\x1b[0m");
     let env_vars = set_env_variables();
 
-    println!("Installing nightly Rust...");
-    run_command("rustup toolchain add nightly", &env_vars)?;
+    println!("🌙 \x1b[1;34mInstalling nightly Rust...\x1b[0m");
+    run_command(&["rustup", "toolchain", "add", "nightly"], &env_vars)?;
 
-    println!("Running tests...");
+    println!("\n🧪 \x1b[1;35mRunning tests...\x1b[0m");
 
-    let test_cases = [
-        TestCase {
-            name: "Tests pass (debug)",
-            build_command: "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin",
-            expected_result: "success",
-            check_feature_mismatch: false,
-        },
-        TestCase {
-            name: "Tests pass (release)",
-            build_command: "cargo build --manifest-path test-crates/samplebin/Cargo.toml --release",
-            run_command: "./test-crates/samplebin/target/release/samplebin",
-            expected_result: "success",
-            check_feature_mismatch: false,
-        },
-        TestCase {
-            name: "Bin stable, mod_a nightly (should fail)",
-            build_command: "cargo +stable build --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin --channel:mod_a=nightly",
-            expected_result: "fail",
-            check_feature_mismatch: true,
-        },
-        TestCase {
-            name: "Bin nightly, mod_a stable (should fail)",
-            build_command: "cargo +nightly build --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin --channel:mod_a=stable",
-            expected_result: "fail",
-            check_feature_mismatch: true,
-        },
-        TestCase {
-            name: "All nightly (should work)",
-            build_command: "cargo +nightly build --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin --channel:mod_a=nightly --channel:mod_b=nightly",
-            expected_result: "success",
-            check_feature_mismatch: false,
-        },
-        TestCase {
-            name: "Bin has mokio-timer feature (should fail)",
-            build_command: "cargo build --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin",
-            expected_result: "fail",
-            check_feature_mismatch: true,
-        },
-        TestCase {
-            name: "mod_a has mokio-timer feature (should fail)",
-            build_command: "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin --features:mod_a=mokio/timer",
-            expected_result: "fail",
-            check_feature_mismatch: true,
-        },
-        TestCase {
-            name: "mod_b has mokio-timer feature (should fail)",
-            build_command: "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin --features:mod_b=mokio/timer",
-            expected_result: "fail",
-            check_feature_mismatch: true,
-        },
-        TestCase {
-            name: "all mods have mokio-timer feature (should fail)",
-            build_command: "cargo build --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin --features:mod_a=mokio/timer --features:mod_b=mokio/timer",
-            expected_result: "fail",
-            check_feature_mismatch: true,
-        },
-        TestCase {
-            name: "bin and mods have mokio-timer feature (should work)",
-            build_command: "cargo build --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml",
-            run_command: "./test-crates/samplebin/target/debug/samplebin --features:mod_a=mokio/timer --features:mod_b=mokio/timer",
-            expected_result: "success",
-            check_feature_mismatch: false,
-        },
-    ];
+    for (index, test) in TEST_CASES.iter().enumerate() {
+        println!("\n\x1b[1;33m╔═════════════════════════════════════════════════════════════════════════════╗\x1b[0m");
+        println!(
+            "\x1b[1;33m║\x1b[0m 🎉🔬 \x1b[1;36mRunning test {}: {}\x1b[0m",
+            index + 1,
+            test.name
+        );
+        println!("\x1b[1;33m╚═════════════════════════════════════════════════════════════════════════════╝\x1b[0m");
 
-    for (index, test) in test_cases.iter().enumerate() {
-        println!("\nRunning test {}: {}", index + 1, test.name);
-
-        println!("Building...");
+        println!("🏗️  \x1b[1;34mBuilding...\x1b[0m");
         let build_result = run_command(test.build_command, &env_vars)?;
         if !build_result.0 {
-            eprintln!("Build failed. Exiting tests.");
+            eprintln!("❌ \x1b[1;31mBuild failed. Exiting tests.\x1b[0m");
             std::process::exit(1);
         }
 
-        println!("Running...");
+        println!("▶️  \x1b[1;32mRunning...\x1b[0m");
         let (success, output) = run_command(test.run_command, &env_vars)?;
 
         match (test.expected_result, success) {
-            ("success", true) => println!("Test passed as expected."),
+            ("success", true) => println!("✅ \x1b[1;32mTest passed as expected.\x1b[0m"),
             ("fail", false) if test.check_feature_mismatch && check_feature_mismatch(&output) => {
-                println!("Test failed with feature mismatch as expected.")
+                println!("✅ \x1b[1;33mTest failed with feature mismatch as expected.\x1b[0m")
             }
             ("fail", false) if test.check_feature_mismatch => {
-                eprintln!("Test failed, but not with the expected feature mismatch error.");
+                eprintln!("❌ \x1b[1;31mTest failed, but not with the expected feature mismatch error.\x1b[0m");
                 std::process::exit(1);
             }
             _ => {
                 eprintln!(
-                    "Test result unexpected. Expected {}, but got {}.",
+                    "❌ \x1b[1;31mTest result unexpected. Expected {}, but got {}.\x1b[0m",
                     test.expected_result,
                     if success { "success" } else { "failure" }
                 );
@@ -293,7 +381,7 @@ fn run_tests() -> io::Result<()> {
         }
     }
 
-    println!("All tests passed successfully.");
+    println!("\n🎉 \x1b[1;32mAll tests passed successfully.\x1b[0m");
     Ok(())
 }
 

@@ -8,8 +8,8 @@ rubicon::compatibility_check! {
     #[cfg(feature = "timer")]
     ("timer", "enabled"),
 
-    #[cfg(feature = "timer")]
-    ("has_timer", "1"),
+    #[cfg(not(feature = "timer"))]
+    ("timer_is_disabled", "1"),
 }
 
 #[derive(Default)]

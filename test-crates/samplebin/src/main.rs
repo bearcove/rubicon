@@ -76,12 +76,6 @@ fn main() {
     soprintln!("app starting up...");
 
     for module in modules {
-        soprintln!(
-            "building {} with features {:?}",
-            module.name,
-            module.features.join(", ")
-        );
-
         cfg_if::cfg_if! {
             if #[cfg(target_os = "macos")] {
                 let rustflags = "-Clink-arg=-undefined -Clink-arg=dynamic_lookup";
@@ -131,16 +125,6 @@ fn main() {
             name, prefix, name, extension
         )
     }
-
-    soprintln!(
-        "DYLD_LIBRARY_PATH = {}",
-        std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default()
-    );
-    soprintln!(
-        "LD_LIBRARY_PATH = {}",
-        std::env::var("LD_LIBRARY_PATH").unwrap_or_default()
-    );
-    soprintln!("PATH = {}", std::env::var("PATH").unwrap_or_default());
 
     soprintln!("loading modules...");
     let lib_a = unsafe { libloading::Library::new(module_path("a")).unwrap() };

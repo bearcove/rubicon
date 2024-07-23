@@ -36,6 +36,15 @@ compile_error!("The features `export-globals` and `import-globals` are mutually 
 #[cfg(any(feature = "export-globals", feature = "import-globals"))]
 pub use paste::paste;
 
+#[cfg(feature = "import-globals")]
+pub use ctor;
+
+#[cfg(any(feature = "export-globals", feature = "import-globals"))]
+pub const RUBICON_RUSTC_VERSION: &str = env!("RUBICON_RUSTC_VERSION");
+
+#[cfg(any(feature = "export-globals", feature = "import-globals"))]
+pub const RUBICON_TARGET_TRIPLE: &str = env!("RUBICON_TARGET_TRIPLE");
+
 //==============================================================================
 // Wrappers
 //==============================================================================
@@ -287,4 +296,71 @@ macro_rules! process_local_inner_mut {
             }
         }
     };
+}
+
+//==============================================================================
+// Compatibility check
+//==============================================================================
+
+#[cfg(feature = "export-globals")]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {
+        use std::env;
+
+        $crate::paste! {
+            #[no_mangle]
+            #[export_name = concat!(env!("CARGO_PKG_NAME"), "_compatibility_info")]
+            static __RUBICON_COMPATIBILITY_INFO_: &'static [(&'static str, &'static str)] = &[
+                ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
+                ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
+                $($feature)*
+            ];
+        }
+    };
+}
+
+#[cfg(feature = "import-globals")]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {
+        use std::env;
+        use $crate::ctor::ctor;
+
+        extern "C" {
+            #[link_name = concat!(env!("CARGO_PKG_NAME"), "_compatibility_info")]
+            static COMPATIBILITY_INFO: &'static [(&'static str, &'static str)];
+        }
+
+        #[ctor]
+        fn check_compatibility() {
+            let ref_compatibility_info: &[(&str, &str)] = &[
+                ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
+                ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
+                $($feature)*
+            ];
+
+            let exported = unsafe { COMPATIBILITY_INFO };
+
+            let missing: Vec<_> = ref_compatibility_info.iter().filter(|&item| !exported.contains(item)).collect();
+            let extra: Vec<_> = exported.iter().filter(|&item| !ref_compatibility_info.contains(item)).collect();
+
+            if !missing.is_empty() || !extra.is_empty() {
+                eprintln!("Compatibility mismatch detected!");
+                if !missing.is_empty() {
+                    eprintln!("Missing features: {:?}", missing);
+                }
+                if !extra.is_empty() {
+                    eprintln!("Extra features: {:?}", extra);
+                }
+                std::process::exit(1);
+            }
+        }
+    };
+}
+
+#[cfg(not(any(feature = "export-globals", feature = "import-globals")))]
+#[macro_export]
+macro_rules! compatibility_check {
+    ($($feature:tt)*) => {};
 }

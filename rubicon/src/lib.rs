@@ -486,7 +486,6 @@ macro_rules! compatibility_check {
             len
         }
 
-        #[ctor]
         fn check_compatibility() {
             eprintln!("Entering check_compatibility function");
             let imported: &[(&str, &str)] = &[
@@ -680,6 +679,20 @@ macro_rules! compatibility_check {
 
             eprintln!("Panicking with error message");
             panic!("{}", error_message);
+        }
+
+        #[cfg(unix)]
+        #[ctor]
+        fn compatibility_check_caller() {
+            check_compatibility();
+        }
+
+        #[cfg(windows)]
+        #[ctor]
+        fn compatibility_check_caller() {
+            std::thread::spawn(|| {
+                check_compatibility();
+            });
         }
     };
 }

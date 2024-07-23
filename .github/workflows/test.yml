@@ -22,16 +22,42 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-      - name: Run cargo command
+      - name: Tests pass (debug)
         run: |
-          cargo run --manifest-path test-crates/bin/Cargo.toml
+          cargo run --manifest-path test-crates/samplebin/Cargo.toml
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
-      - name: Run cargo command (release)
+      - name: Tests pass (release)
         run: |
-          cargo run --manifest-path test-crates/bin/Cargo.toml --release
+          cargo run --manifest-path test-crates/samplebin/Cargo.toml --release
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
-      - name: Run cargo command (release with SOPRINTLN=1)
-        if: matrix.os != 'windows-latest'
+      - name: Bin stable, mod_a nightly (should fail)
         run: |
-          export SOPRINTLN=1
-          cargo run --manifest-path test-crates/bin/Cargo.toml --release
+          ! cargo +stable run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=nightly
+        shell: bash
+      - name: Bin nightly, mod_a stable (should fail)
+        run: |
+          ! cargo +nightly run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=stable
+        shell: bash
+      - name: All nightly (should work)
+        run: |
+          cargo +nightly run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=nightly --channel:mod_b=nightly
+        shell: bash
+      - name: Bin has mokio-timer feature (should fail)
+        run: |
+          ! cargo run --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml
+        shell: bash
+      - name: mod_a has mokio-timer feature (should fail)
+        run: |
+          ! cargo run --manifest-path test-crates/mod_a/Cargo.toml -- --features:mod_a=mokio/timer
+        shell: bash
+      - name: mod_b has mokio-timer feature (should fail)
+        run: |
+          ! cargo run --manifest-path test-crates/mod_b/Cargo.toml -- --features:mod_b=mokio/timer
+        shell: bash
+      - name: all mods have mokio-timer feature (should fail)
+        run: |
+          ! cargo run --manifest-path test-crates/samplebin/Cargo.toml -- --features:mod_a=mokio/timer --features:mod_b=mokio/timer
+      - name: bin and mods have mokio-timer feature (should work)
+        run: |
+          cargo run --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml -- --features:mod_a=mokio/timer --features:mod_b=mokio/timer
+        shell: bash

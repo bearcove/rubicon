@@ -420,7 +420,7 @@ macro_rules! compatibility_check {
             error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
             error_message.push_str(&format!(" 💀 Feature mismatch for crate \x1b[31m{}\x1b[0m\n\n", env!("CARGO_PKG_NAME")));
 
-            error_message.push_str(&format!("Loading this module would mix different configurations of the {} crate.\n\n", red(env!("CARGO_PKG_NAME"))));
+            error_message.push_str(&format!("Loading {} would mix different configurations of the {} crate.\n\n", blue(so_name), red(env!("CARGO_PKG_NAME"))));
 
             // Compute max lengths for alignment
             let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);

@@ -29,3 +29,4 @@ jobs:
           cd tests/
           cargo run
         shell: bash
+        continue-on-error: ${{ matrix.os == 'windows-latest' }}

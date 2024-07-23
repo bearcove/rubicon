@@ -534,8 +534,8 @@ macro_rules! compatibility_check {
                 let imported_value = imported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
 
                 let key_column = colored(AnsiColor::GREY, key).to_string();
-                let binary_column = format_column(imported_value.as_deref().copied(), exported_value.as_deref().copied(), AnsiColor::RED);
-                let module_column = format_column(exported_value.as_deref().copied(), imported_value.as_deref().copied(), AnsiColor::GREEN);
+                let binary_column = format_column(exported_value.as_deref().copied(), imported_value.as_deref().copied(), AnsiColor::GREEN);
+                let module_column = format_column(imported_value.as_deref().copied(), exported_value.as_deref().copied(), AnsiColor::RED);
 
                 fn format_column(primary: Option<&str>, secondary: Option<&str>, highlight_color: AnsiColor) -> String {
                     match primary {
@@ -546,7 +546,7 @@ macro_rules! compatibility_check {
                                 colored(highlight_color, value).to_string()
                             }
                         },
-                        None => colored(AnsiColor::GREY, "∅").to_string(),
+                        None => colored(AnsiColor::RED, "∅").to_string(),
                     }
                 }
 

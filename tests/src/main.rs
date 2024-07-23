@@ -66,24 +66,17 @@ fn set_env_variables(git_root: &Path) -> EnvVars {
         .to_string();
 
     let platform = env::consts::OS;
-    let debug_lib_path = git_root.join("test-crates/samplebin/target/debug");
 
     env_vars.add_library_path(format!("{}/lib", rust_sysroot));
     env_vars.add_library_path(format!("{}/lib", rust_nightly_sysroot));
 
     match platform {
-        "macos" => {
-            println!("🍎 Detected macOS");
+        "macos" | "linux" => {
+            // okay
         }
         "windows" => {
-            println!("🪟 Detected Windows");
             let current_path = env::var("PATH").unwrap_or_default();
             env_vars.add_library_path(current_path);
-            env_vars.add_library_path(debug_lib_path.display().to_string());
-        }
-        "linux" => {
-            println!("🐧 Detected Linux");
-            env_vars.add_library_path(debug_lib_path.display().to_string());
         }
         _ => {
             eprintln!("❌ Unsupported platform: {}", platform);

@@ -30,6 +30,8 @@ jobs:
         run: |
           cargo run --manifest-path test-crates/samplebin/Cargo.toml --release
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
+      - name: Add nightly
+        run: rustup toolchain add nightly
       - name: Bin stable, mod_a nightly (should fail)
         run: |
           ! cargo +stable run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=nightly

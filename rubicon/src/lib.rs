@@ -512,27 +512,22 @@ macro_rules! compatibility_check {
                 let exported_value = exported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
                 let imported_value = imported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
 
-                let key_column = grey(key).to_string();
-                let binary_column = match imported_value {
-                    Some(value) => {
-                        if exported_value.map_or(false, |v| v == value) {
-                            format!("{}", grey(value))
-                        } else {
-                            format!("{}", red(value))
-                        }
-                    },
-                    None => format!("{}", grey("(∅)")),
-                };
-                let module_column = match exported_value {
-                    Some(value) => {
-                        if imported_value.map_or(false, |v| v == value) {
-                            format!("{}", grey(value))
-                        } else {
-                            format!("{}", green(value))
-                        }
-                    },
-                    None => format!("{}", grey("(∅)")),
-                };
+                let key_column = colored(AnsiColor::GREY, key).to_string();
+                let binary_column = format_column(imported_value.as_deref().copied(), exported_value.as_deref().copied(), AnsiColor::RED);
+                let module_column = format_column(exported_value.as_deref().copied(), imported_value.as_deref().copied(), AnsiColor::GREEN);
+
+                fn format_column(primary: Option<&str>, secondary: Option<&str>, highlight_color: AnsiColor) -> String {
+                    match primary {
+                        Some(value) => {
+                            if secondary.map_or(false, |v| v == value) {
+                                colored(AnsiColor::GREY, value).to_string()
+                            } else {
+                                colored(highlight_color, value).to_string()
+                            }
+                        },
+                        None => colored(AnsiColor::GREY, "∅").to_string(),
+                    }
+                }
 
                 grid.add_row(vec![key_column, binary_column, module_column]);
             }

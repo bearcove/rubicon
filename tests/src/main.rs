@@ -156,11 +156,43 @@ fn run_command(command: &[&str], env_vars: &EnvVars) -> io::Result<(bool, String
 
     let status = child.wait()?;
     if !status.success() {
-        let exit_code = status.code().unwrap_or(-1);
-        eprintln!(
-            "\nProcess exited with code {} (0x{:X})",
-            exit_code, exit_code
-        );
+        if let Some(exit_code) = status.code() {
+            eprintln!(
+                "\n🔍 \x1b[1;90mProcess exited with code {} (0x{:X})\x1b[0m",
+                exit_code, exit_code
+            );
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                if let Some(signal) = status.signal() {
+                    let signal_name = match signal {
+                        1 => "SIGHUP",
+                        2 => "SIGINT",
+                        3 => "SIGQUIT",
+                        4 => "SIGILL",
+                        6 => "SIGABRT",
+                        8 => "SIGFPE",
+                        9 => "SIGKILL",
+                        11 => "SIGSEGV",
+                        13 => "SIGPIPE",
+                        14 => "SIGALRM",
+                        15 => "SIGTERM",
+                        _ => "Unknown",
+                    };
+                    eprintln!(
+                        "\n🔍 \x1b[1;90mProcess terminated by signal {} ({})\x1b[0m",
+                        signal, signal_name
+                    );
+                } else {
+                    eprintln!("\n🔍 \x1b[1;90mProcess exited with unknown status\x1b[0m");
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                eprintln!("\n🔍 \x1b[1;90mProcess exited with unknown status\x1b[0m");
+            }
+        }
     }
     Ok((status.success(), output))
 }

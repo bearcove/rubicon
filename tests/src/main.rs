@@ -155,6 +155,13 @@ fn run_command(command: &[&str], env_vars: &EnvVars) -> io::Result<(bool, String
     stderr_thread.join().expect("stderr thread panicked");
 
     let status = child.wait()?;
+    if !status.success() {
+        let exit_code = status.code().unwrap_or(-1);
+        output.push_str(&format!(
+            "\nProcess exited with code {} (0x{:X})",
+            exit_code, exit_code
+        ));
+    }
     Ok((status.success(), output))
 }
 

@@ -361,7 +361,7 @@ macro_rules! compatibility_check {
                 let max_ref_len = imported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
                 let column_width = max_exported_len.max(max_ref_len);
 
-                error_message.push_str(&format!("Present in binary{:width$}Expected by this module\n", "", width = column_width - 17 + 4));
+                error_message.push_str(&format!("{:<width$}    {:<width$}\n", "Present in binary", "Expected by this module", width = column_width));
                 error_message.push_str(&format!("{:-<width$}    {:-<width$}\n", "", "", width = column_width));
 
                 let mut i = 0;
@@ -383,6 +383,9 @@ macro_rules! compatibility_check {
                 }
                 fn red<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
                     AnsiEscape(31, d)
+                }
+                fn grey<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+                    AnsiEscape(90, d)
                 }
 
                 // Gather all unique keys
@@ -406,21 +409,24 @@ macro_rules! compatibility_check {
                         (Some(value), Some(expected_value)) => {
                             // Item in both
                             let color = if value == expected_value { green } else { red };
-                            let left_item = format!("{}={}", blue(key), color(value));
-                            let right_item = format!("{}={}", blue(key), color(expected_value));
-                            error_message.push_str(&format!("{:<width$}    {:<width$}\n",
-                                left_item, right_item, width = column_width
-                            ));
+                            let left_item = format!("{}{}{}", blue(key), grey("="), color(value));
+                            let right_item = format!("{}{}{}", blue(key), grey("="), color(expected_value));
+                            let left_item_len = key.len() + value.len() + 1; // +1 for '='
+                            let padding = " ".repeat(column_width.saturating_sub(left_item_len));
+                            error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
                         }
                         (Some(value), None) => {
                             // Item only in exported
-                            let item = format!("{}={}", blue(key), red(value));
-                            error_message.push_str(&format!("{:<width$}    \n", item, width = column_width));
+                            let item = format!("{}{}{}", blue(key), grey("="), red(value));
+                            let item_len = key.len() + value.len() + 1; // +1 for '='
+                            let padding = " ".repeat(column_width.saturating_sub(item_len));
+                            error_message.push_str(&format!("{}{}\n", item, padding));
                         }
                         (None, Some(value)) => {
                             // Item only in imported
-                            let item = format!("{}={}", blue(key), red(value));
-                            error_message.push_str(&format!("{:<width$}    {:<width$}\n", "", item, width = column_width));
+                            let item = format!("{}{}{}", blue(key), grey("="), red(value));
+                            let padding = " ".repeat(column_width);
+                            error_message.push_str(&format!("{}    {}\n", padding, item));
                         }
                         (None, None) => {
                             // This should never happen as the key is from all_keys

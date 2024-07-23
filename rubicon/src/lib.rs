@@ -37,9 +37,6 @@ compile_error!("The features `export-globals` and `import-globals` are mutually 
 pub use paste::paste;
 
 #[cfg(feature = "import-globals")]
-pub use ctor;
-
-#[cfg(feature = "import-globals")]
 pub use libc;
 
 #[cfg(any(feature = "export-globals", feature = "import-globals"))]
@@ -54,13 +51,18 @@ pub const RUBICON_TARGET_TRIPLE: &str = env!("RUBICON_TARGET_TRIPLE");
 
 /// Wrapper around an `extern` `static` ref to avoid requiring `unsafe` for imported globals.
 #[doc(hidden)]
-pub struct TrustedExtern<T: 'static>(pub &'static T);
+pub struct TrustedExtern<T: 'static>(pub &'static T, pub fn());
 
 use std::ops::Deref;
 
 impl<T> Deref for TrustedExtern<T> {
     type Target = T;
+
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
+        // this is a good time to run compatibility checks
+        (self.1)();
+
         self.0
     }
 }
@@ -73,12 +75,16 @@ impl<T> Deref for TrustedExtern<T> {
 ///
 /// As a result, imported thread-locals have an additional layer of indirection.
 #[doc(hidden)]
-pub struct TrustedExternDouble<T: 'static>(pub &'static &'static T);
+pub struct TrustedExternDouble<T: 'static>(pub &'static &'static T, pub fn());
 
 impl<T> Deref for TrustedExternDouble<T> {
     type Target = T;
+
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        // autoderef goes brrr
+        // this is a good time to run compatibility checks
+        (self.1)();
+
         self.0
     }
 }
@@ -173,7 +179,7 @@ macro_rules! thread_local_inner {
             // even though this ends up being not a LocalKey, but a type that Derefs to LocalKey,
             // in practice, most codebases work just fine with this, since they call methods
             // that takes `self: &LocalKey`: they don't see the difference.
-            $vis static $name: $crate::TrustedExternDouble<::std::thread::LocalKey<$ty>> = $crate::TrustedExternDouble(unsafe { &[<$name __rubicon_import>] });
+            $vis static $name: $crate::TrustedExternDouble<::std::thread::LocalKey<$ty>> = $crate::TrustedExternDouble(unsafe { &[<$name __rubicon_import>] }, crate::compatibility_check_once);
         }
     };
 }
@@ -280,7 +286,7 @@ macro_rules! process_local_inner {
                 static [<$name __rubicon_import>]: $ty;
             }
 
-            $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] });
+            $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] }, crate::compatibility_check_once);
         }
     };
 }
@@ -328,7 +334,6 @@ macro_rules! compatibility_check {
 macro_rules! compatibility_check {
     ($($feature:tt)*) => {
         use std::env;
-        use $crate::ctor::ctor;
 
         extern "Rust" {
             #[link_name = concat!(env!("CARGO_PKG_NAME"), "_compatibility_info")]
@@ -408,8 +413,16 @@ macro_rules! compatibility_check {
             len
         }
 
-        #[ctor]
-        fn check_compatibility() {
+        // this one is _actually_ meant to exist once per shared object
+        static COMPATIBILITY_CHECK_ONCE: std::sync::Once = std::sync::Once::new();
+
+        pub fn compatibility_check_once() {
+            COMPATIBILITY_CHECK_ONCE.call_once(|| {
+                check_compatibility();
+            });
+        }
+
+        pub fn check_compatibility() {
             eprintln!("Entering check_compatibility function");
             let imported: &[(&str, &str)] = &[
                 ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
@@ -424,6 +437,7 @@ macro_rules! compatibility_check {
 
             if missing.is_empty() && extra.is_empty() {
                 eprintln!("No compatibility issues found");
+
                 // all good
                 return;
             }
@@ -439,7 +453,7 @@ macro_rules! compatibility_check {
             error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
             error_message.push_str(&format!(" 💀 Feature mismatch for crate \x1b[31m{}\x1b[0m\n\n", env!("CARGO_PKG_NAME")));
 
-            error_message.push_str(&format!("Loading {} would mix different configurations of the {} crate.\n\n", blue(so_name), red(env!("CARGO_PKG_NAME"))));
+            error_message.push_str(&format!("{} has an incompatible configuration for {}.\n\n", blue(so_name), red(env!("CARGO_PKG_NAME"))));
 
             eprintln!("Calculating column widths for grid display");
             // Compute max lengths for alignment

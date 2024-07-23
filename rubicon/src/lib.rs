@@ -683,31 +683,7 @@ macro_rules! compatibility_check {
             panic!("{}", error_message);
         }
 
-        #[cfg(windows)]
-        #[ctor]
-        fn check_compatibility() {
-            // on Windows we cannot allocate at all from a DLL initializer,
-
-            let imported: &[(&str, &str)] = &[
-                ("rustc-version", $crate::RUBICON_RUSTC_VERSION),
-                ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
-                $($feature)*
-            ];
-            let exported = unsafe { COMPATIBILITY_INFO };
-
-            for item in imported.iter() {
-                if !exported.contains(item) {
-                    eprintln!("Compatibility mismatch detected: {} (imported) != {} (exported)", item.0, item.1);
-                    std::process::exit(1);
-                }
-            }
-            for item in exported.iter() {
-                if !imported.contains(item) {
-                    eprintln!("Compatibility mismatch detected: {} (exported) != {} (imported)", item.0, item.1);
-                    std::process::exit(1);
-                }
-            }
-        }
+        /// compatibility checks are not supported on Windows
     };
 }
 

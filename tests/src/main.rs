@@ -448,7 +448,7 @@ fn run_tests() -> io::Result<()> {
             }
             ("fail", false) if test.check_feature_mismatch => {
                 eprintln!("❌ \x1b[1;31mTest failed, but not with the expected feature mismatch error.\x1b[0m");
-                if test.allowed_to_fail {
+                if test.allowed_to_fail || cfg!(windows) {
                     println!("⚠️ \x1b[1;33mTest was allowed to fail.\x1b[0m");
                 } else {
                     std::process::exit(1);

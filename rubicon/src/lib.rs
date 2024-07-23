@@ -358,7 +358,8 @@ macro_rules! compatibility_check {
 
         impl<D: std::fmt::Display> std::fmt::Display for AnsiEscape<D> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "\x1b[{}m{}\x1b[0m", self.0, self.1)
+                let inner = format!("\x1b[{}m{}\x1b[0m", self.0, self.1);
+                f.pad(&inner)
             }
         }
 
@@ -505,55 +506,35 @@ macro_rules! compatibility_check {
             let mut grid = Grid::new();
 
             // Add header
-            grid.add_row(vec![format!("Binary {}", blue(&exe_name)), format!("Module {}", blue(so_name))]);
-
-            struct ItemFormatter {
-                max_key_len: usize,
-                max_value_len: usize,
-            }
-
-            impl ItemFormatter {
-                fn format(&self, k: &str, v: &str, color: AnsiColor) -> String {
-                    format!("{:<key_width$}={:<value_width$}", colored(color, k), colored(color, v),
-                            key_width = self.max_key_len,
-                            value_width = self.max_value_len)
-                }
-            }
-
-            let formatter = ItemFormatter {
-                max_key_len: all_keys.iter().map(|k| k.len()).max().unwrap_or(0),
-                max_value_len: exported.iter().chain(imported.iter()).map(|(_, v)| v.len()).max().unwrap_or(0),
-            };
+            grid.add_row(vec!["Key".to_string(), format!("Binary {}", blue(&exe_name)), format!("Module {}", blue(so_name))]);
 
             for key in all_keys.iter() {
                 let exported_value = exported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
                 let imported_value = imported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
 
-                match (exported_value, imported_value) {
-                    (Some(value), Some(expected_value)) => {
-                        if value == expected_value {
-                            let item = formatter.format(key, value, AnsiColor::GREY);
-                            grid.add_row(vec![item.clone(), item]);
+                let key_column = grey(key).to_string();
+                let binary_column = match imported_value {
+                    Some(value) => {
+                        if exported_value.map_or(false, |v| v == value) {
+                            format!("{}", grey(value))
                         } else {
-                            let left_item = formatter.format(key, value, AnsiColor::GREEN);
-                            let right_item = formatter.format(key, expected_value, AnsiColor::RED);
-                            grid.add_row(vec![left_item, right_item]);
+                            format!("{}", red(value))
                         }
-                    }
-                    (Some(value), None) => {
-                        let left_item = formatter.format(key, value, AnsiColor::GREEN);
-                        let right_item = red("MISSING!").to_string();
-                        grid.add_row(vec![left_item, right_item]);
-                    }
-                    (None, Some(value)) => {
-                        let left_item = red("MISSING!").to_string();
-                        let right_item = formatter.format(key, value, AnsiColor::GREEN);
-                        grid.add_row(vec![left_item, right_item]);
-                    }
-                    (None, None) => {
-                        unreachable!()
-                    }
-                }
+                    },
+                    None => format!("{}", grey("(∅)")),
+                };
+                let module_column = match exported_value {
+                    Some(value) => {
+                        if imported_value.map_or(false, |v| v == value) {
+                            format!("{}", grey(value))
+                        } else {
+                            format!("{}", green(value))
+                        }
+                    },
+                    None => format!("{}", grey("(∅)")),
+                };
+
+                grid.add_row(vec![key_column, binary_column, module_column]);
             }
 
             grid.write_to(&mut error_message);

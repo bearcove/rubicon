@@ -368,11 +368,10 @@ macro_rules! compatibility_check {
 
             if !missing.is_empty() || !extra.is_empty() {
                 let mut error_message = String::new();
-                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
-                error_message.push_str(&format!(" 💀 Compatibility mismatch for module \x1b[31m{}\x1b[0m", env!("CARGO_PKG_NAME")));
-                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n\n");
+                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
+                error_message.push_str(&format!(" 💀 Compatibility mismatch for module \x1b[31m{}\x1b[0m\n\n", env!("CARGO_PKG_NAME")));
 
-                error_message.push_str(&format!("The crate '{}' doesn't have the exact same cargo features enabled in the main binary and in a module being loaded\n\n", red(env!("CARGO_PKG_NAME"))));
+                error_message.push_str(&format!("'{}' doesn't have the exact same cargo features enabled in the main binary and in the module being loaded\n\n", red(env!("CARGO_PKG_NAME"))));
 
                 // Compute max lengths for alignment
                 let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
@@ -446,9 +445,7 @@ macro_rules! compatibility_check {
                 let cargo_tree_line = format!("Run `cargo tree -i {}` to figure out why you even have it.", red(env!("CARGO_PKG_NAME")));
 
                 let lines = vec![
-                    "Refusing to proceed as this could cause memory corruption.",
-                    "",
-                    "📝 \x1b[34mNote:\x1b[0m",
+                    "\x1b[34mHINT:\x1b[0m",
                     "To fix this issue, rebuild this module with the same cargo features as the",
                     &transitive_line,
                     "(i.e., pulled indirectly by another dependency).",
@@ -485,13 +482,13 @@ macro_rules! compatibility_check {
                         error_message.push_str(&format!("│{}│\n", " ".repeat(box_width - 2)));
                     } else {
                         let visible_line_len = visible_len(line);
-                        let padding = " ".repeat(box_width - 2 - visible_line_len);
+                        let padding = " ".repeat(box_width - 4 - visible_line_len);
                         error_message.push_str(&format!("│ {}{} │\n", line, padding));
                     }
                 }
 
                 error_message.push_str(&format!("└{}┘\n", "─".repeat(box_width - 2)));
-                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n\n");
+                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
 
                 panic!("{}", error_message);
             }

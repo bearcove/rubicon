@@ -132,6 +132,16 @@ fn main() {
         )
     }
 
+    soprintln!(
+        "DYLD_LIBRARY_PATH = {}",
+        std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default()
+    );
+    soprintln!(
+        "LD_LIBRARY_PATH = {}",
+        std::env::var("LD_LIBRARY_PATH").unwrap_or_default()
+    );
+    soprintln!("PATH = {}", std::env::var("PATH").unwrap_or_default());
+
     soprintln!("loading modules...");
     let lib_a = unsafe { libloading::Library::new(module_path("a")).unwrap() };
     let lib_a = Box::leak(Box::new(lib_a));

@@ -22,23 +22,44 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
+      - name: Set dynamic linker paths
+        run: |
+          export DYLD_LIBRARY_PATH=$(rustc --print sysroot)/lib
+          export LD_LIBRARY_PATH=$(rustc --print sysroot)/lib
+          export PATH=$(rustc --print sysroot)/lib:$PATH
+          export DYLD_LIBRARY_PATH_NIGHTLY=$(rustc +nightly --print sysroot)/lib
+          export LD_LIBRARY_PATH_NIGHTLY=$(rustc +nightly --print sysroot)/lib
+          export PATH_NIGHTLY=$(rustc +nightly --print sysroot)/lib:$PATH
+        shell: bash
       - name: Tests pass (debug)
         run: |
           cargo run --manifest-path test-crates/samplebin/Cargo.toml
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
+        shell: bash
       - name: Tests pass (release)
         run: |
           cargo run --manifest-path test-crates/samplebin/Cargo.toml --release
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
+        shell: bash
       - name: Add nightly
         run: rustup toolchain add nightly
       - name: Bin stable, mod_a nightly (should fail)
         run: |
-          ! cargo +stable run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=nightly
+          output=$(cargo +stable run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=nightly 2>&1)
+          if [[ $output != *"feature mismatch for crate"* ]]; then
+            echo "Expected feature mismatch error, but got:"
+            echo "$output"
+            exit 1
+          fi
         shell: bash
       - name: Bin nightly, mod_a stable (should fail)
         run: |
-          ! cargo +nightly run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=stable
+          output=$(cargo +nightly run --manifest-path test-crates/samplebin/Cargo.toml -- --channel:mod_a=stable 2>&1)
+          if [[ $output != *"feature mismatch for crate"* ]]; then
+            echo "Expected feature mismatch error, but got:"
+            echo "$output"
+            exit 1
+          fi
         shell: bash
       - name: All nightly (should work)
         run: |
@@ -46,19 +67,40 @@ jobs:
         shell: bash
       - name: Bin has mokio-timer feature (should fail)
         run: |
-          ! cargo run --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml
+          output=$(cargo run --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml 2>&1)
+          if [[ $output != *"feature mismatch for crate"* ]]; then
+            echo "Expected feature mismatch error, but got:"
+            echo "$output"
+            exit 1
+          fi
         shell: bash
       - name: mod_a has mokio-timer feature (should fail)
         run: |
-          ! cargo run --manifest-path test-crates/mod_a/Cargo.toml -- --features:mod_a=mokio/timer
+          output=$(cargo run --manifest-path test-crates/mod_a/Cargo.toml -- --features:mod_a=mokio/timer 2>&1)
+          if [[ $output != *"feature mismatch for crate"* ]]; then
+            echo "Expected feature mismatch error, but got:"
+            echo "$output"
+            exit 1
+          fi
         shell: bash
       - name: mod_b has mokio-timer feature (should fail)
         run: |
-          ! cargo run --manifest-path test-crates/mod_b/Cargo.toml -- --features:mod_b=mokio/timer
+          output=$(cargo run --manifest-path test-crates/mod_b/Cargo.toml -- --features:mod_b=mokio/timer 2>&1)
+          if [[ $output != *"feature mismatch for crate"* ]]; then
+            echo "Expected feature mismatch error, but got:"
+            echo "$output"
+            exit 1
+          fi
         shell: bash
       - name: all mods have mokio-timer feature (should fail)
         run: |
-          ! cargo run --manifest-path test-crates/samplebin/Cargo.toml -- --features:mod_a=mokio/timer --features:mod_b=mokio/timer
+          output=$(cargo run --manifest-path test-crates/samplebin/Cargo.toml -- --features:mod_a=mokio/timer --features:mod_b=mokio/timer 2>&1)
+          if [[ $output != *"feature mismatch for crate"* ]]; then
+            echo "Expected feature mismatch error, but got:"
+            echo "$output"
+            exit 1
+          fi
+        shell: bash
       - name: bin and mods have mokio-timer feature (should work)
         run: |
           cargo run --features=exports/mokio-timer --manifest-path test-crates/samplebin/Cargo.toml -- --features:mod_a=mokio/timer --features:mod_b=mokio/timer

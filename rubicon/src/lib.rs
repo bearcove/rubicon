@@ -429,8 +429,6 @@ macro_rules! compatibility_check {
 
             let binary_label = format!("Binary {}", blue(&exe_name));
             let module_label = format!("Module {}", blue(so_name));
-            println!("visible_len(binary_label) = {}", visible_len(&binary_label));
-            println!("visible_len(module_label) = {}", visible_len(&module_label));
 
             let binary_label_width = visible_len(&binary_label);
             let module_label_width = visible_len(&module_label);

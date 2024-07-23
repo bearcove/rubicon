@@ -4,6 +4,64 @@ use exports::{self as _, mokio};
 use soprintln::soprintln;
 
 fn main() {
+    struct ModuleSpec {
+        name: &'static str,
+        channel: String,
+        features: Vec<String>,
+    }
+
+    let mut modules = [
+        ModuleSpec {
+            name: "mod_a",
+            channel: "stable".to_string(),
+            features: Default::default(),
+        },
+        ModuleSpec {
+            name: "mod_b",
+            channel: "stable".to_string(),
+            features: Default::default(),
+        },
+    ];
+
+    for arg in std::env::args().skip(1) {
+        if let Some(rest) = arg.strip_prefix("--features:") {
+            let parts: Vec<&str> = rest.splitn(2, '=').collect();
+            if parts.len() != 2 {
+                panic!("Invalid argument format: expected --features:module=feature1,feature2");
+            }
+            let mod_name = parts[0];
+            let features = parts[1].split(',').map(|s| s.to_owned());
+            let module = modules
+                .iter_mut()
+                .find(|m| m.name == mod_name)
+                .unwrap_or_else(|| panic!("Unknown module: {}", mod_name));
+
+            for feature in features {
+                module.features.push(feature);
+            }
+        } else if let Some(rest) = arg.strip_prefix("--channel:") {
+            let parts: Vec<&str> = rest.splitn(2, '=').collect();
+            if parts.len() != 2 {
+                panic!("Invalid argument format: expected --channel:module=(stable|nightly)");
+            }
+            let mod_name = parts[0];
+            let channel = parts[1];
+            if channel != "stable" && channel != "nightly" {
+                panic!(
+                    "Invalid channel: {}. Expected 'stable' or 'nightly'",
+                    channel
+                );
+            }
+            let module = modules
+                .iter_mut()
+                .find(|m| m.name == mod_name)
+                .unwrap_or_else(|| panic!("Unknown module: {}", mod_name));
+            module.channel = channel.to_string();
+        } else {
+            panic!("Unknown argument: {}", arg);
+        }
+    }
+
     soprintln::init!();
     let exe_path = std::env::current_exe().expect("Failed to get current exe path");
     let project_root = exe_path
@@ -17,9 +75,12 @@ fn main() {
 
     soprintln!("app starting up...");
 
-    let modules = ["../mod_a", "../mod_b"];
     for module in modules {
-        soprintln!("building {module}");
+        soprintln!(
+            "building {} with features {:?}",
+            module.name,
+            module.features.join(", ")
+        );
 
         cfg_if::cfg_if! {
             if #[cfg(target_os = "macos")] {
@@ -31,19 +92,24 @@ fn main() {
             }
         }
 
-        let output = std::process::Command::new("cargo")
-            .arg("b")
+        let mut cmd = std::process::Command::new("cargo");
+        cmd.arg(format!("+{}", module.channel))
+            .arg("build")
             .env("RUSTFLAGS", rustflags)
-            .current_dir(module)
-            .output()
-            .expect("Failed to execute cargo build");
+            .current_dir(format!("../{}", module.name));
+        if !module.features.is_empty() {
+            cmd.arg("--features").arg(module.features.join(","));
+        }
+
+        let output = cmd.output().expect("Failed to execute cargo build");
 
         if !output.status.success() {
             eprintln!(
                 "Error building {}: {}",
-                module,
+                module.name,
                 String::from_utf8_lossy(&output.stderr)
             );
+            std::process::exit(1);
         }
     }
 

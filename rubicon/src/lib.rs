@@ -39,6 +39,9 @@ pub use paste::paste;
 #[cfg(feature = "import-globals")]
 pub use ctor;
 
+#[cfg(feature = "import-globals")]
+pub use libc;
+
 #[cfg(any(feature = "export-globals", feature = "import-globals"))]
 pub const RUBICON_RUSTC_VERSION: &str = env!("RUBICON_RUSTC_VERSION");
 
@@ -332,6 +335,64 @@ macro_rules! compatibility_check {
             static COMPATIBILITY_INFO: &'static [(&'static str, &'static str)];
         }
 
+        use $crate::libc::{c_void, Dl_info};
+        use std::ffi::CStr;
+        use std::ptr;
+
+        extern "C" {
+            fn dladdr(addr: *const c_void, info: *mut Dl_info) -> i32;
+        }
+
+        fn get_shared_object_name() -> Option<String> {
+            unsafe {
+                let mut info: Dl_info = std::mem::zeroed();
+                if dladdr(get_shared_object_name as *const c_void, &mut info) != 0 {
+                    let c_str = CStr::from_ptr(info.dli_fname);
+                    return Some(c_str.to_string_lossy().into_owned());
+                }
+            }
+            None
+        }
+
+        struct AnsiEscape<D: std::fmt::Display>(u64, D);
+
+        impl<D: std::fmt::Display> std::fmt::Display for AnsiEscape<D> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "\x1b[{}m{}\x1b[0m", self.0, self.1)
+            }
+        }
+
+        fn blue<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(34, d)
+        }
+        fn green<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(32, d)
+        }
+        fn red<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(31, d)
+        }
+        fn grey<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
+            AnsiEscape(90, d)
+        }
+
+        // Helper function to count visible characters (ignoring ANSI escapes)
+        fn visible_len(s: &str) -> usize {
+            let mut len = 0;
+            let mut in_escape = false;
+            for c in s.chars() {
+                if c == '\x1b' {
+                    in_escape = true;
+                } else if in_escape {
+                    if c.is_alphabetic() {
+                        in_escape = false;
+                    }
+                } else {
+                    len += 1;
+                }
+            }
+            len
+        }
+
         #[ctor]
         fn check_compatibility() {
             let imported: &[(&str, &str)] = &[
@@ -339,159 +400,150 @@ macro_rules! compatibility_check {
                 ("target-triple", $crate::RUBICON_TARGET_TRIPLE),
                 $($feature)*
             ];
-
             let exported = unsafe { COMPATIBILITY_INFO };
 
             let missing: Vec<_> = imported.iter().filter(|&item| !exported.contains(item)).collect();
             let extra: Vec<_> = exported.iter().filter(|&item| !imported.contains(item)).collect();
 
-            struct AnsiEscape<D: std::fmt::Display>(u64, D);
+            if missing.is_empty() && extra.is_empty() {
+                // all good
+                return;
+            }
 
-            impl<D: std::fmt::Display> std::fmt::Display for AnsiEscape<D> {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "\x1b[{}m{}\x1b[0m", self.0, self.1)
+            let so_name = get_shared_object_name().unwrap_or("unknown_so".to_string());
+            // get only the last bit of the path
+            let so_name = so_name.rsplit('/').next().unwrap_or("unknown_so");
+
+            let exe_name = std::env::current_exe().map(|p| p.file_name().unwrap().to_string_lossy().to_string()).unwrap_or_else(|_| "unknown_exe".to_string());
+
+            let mut error_message = String::new();
+            error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
+            error_message.push_str(&format!(" 💀 Feature mismatch for crate \x1b[31m{}\x1b[0m\n\n", env!("CARGO_PKG_NAME")));
+
+            error_message.push_str(&format!("Loading this module would mix different configurations of the {} crate.\n\n", red(env!("CARGO_PKG_NAME"))));
+
+            // Compute max lengths for alignment
+            let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
+            let max_ref_len = imported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
+            let column_width = max_exported_len.max(max_ref_len);
+
+            let binary_label = format!("Binary {}", blue(&exe_name));
+            let module_label = format!("Module {}", blue(so_name));
+            println!("visible_len(binary_label) = {}", visible_len(&binary_label));
+            println!("visible_len(module_label) = {}", visible_len(&module_label));
+
+            let binary_label_width = visible_len(&binary_label);
+            let module_label_width = visible_len(&module_label);
+            let binary_padding = " ".repeat(column_width.saturating_sub(binary_label_width));
+            let module_padding = " ".repeat(column_width.saturating_sub(module_label_width));
+
+            error_message.push_str(&format!("{}{}    {}{}\n",
+                binary_label,
+                binary_padding,
+                module_label,
+                module_padding
+            ));
+            error_message.push_str(&format!("{:━<width$}    {:━<width$}\n", "", "", width = column_width));
+
+            let mut i = 0;
+            let mut j = 0;
+
+            // Gather all unique keys
+            let mut all_keys: Vec<&str> = Vec::new();
+            for (key, _) in exported.iter() {
+                if !all_keys.contains(key) {
+                    all_keys.push(key);
+                }
+            }
+            for (key, _) in imported.iter() {
+                if !all_keys.contains(key) {
+                    all_keys.push(key);
                 }
             }
 
-            fn blue<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                AnsiEscape(34, d)
-            }
-            fn green<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                AnsiEscape(32, d)
-            }
-            fn red<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                AnsiEscape(31, d)
-            }
-            fn grey<D: std::fmt::Display>(d: D) -> AnsiEscape<D> {
-                AnsiEscape(90, d)
-            }
+            for key in all_keys.iter() {
+                let exported_value = exported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
+                let imported_value = imported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
 
-            if !missing.is_empty() || !extra.is_empty() {
-                let mut error_message = String::new();
-                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
-                error_message.push_str(&format!(" 💀 Compatibility mismatch for module \x1b[31m{}\x1b[0m\n\n", env!("CARGO_PKG_NAME")));
-
-                error_message.push_str(&format!("'{}' doesn't have the exact same cargo features enabled in the main binary and in the module being loaded\n\n", red(env!("CARGO_PKG_NAME"))));
-
-                // Compute max lengths for alignment
-                let max_exported_len = exported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
-                let max_ref_len = imported.iter().map(|(k, v)| format!("{}={}", k, v).len()).max().unwrap_or(0);
-                let column_width = max_exported_len.max(max_ref_len);
-
-                error_message.push_str(&format!("{:<width$}    {:<width$}\n", "Present in binary", "Expected by this module", width = column_width));
-                error_message.push_str(&format!("{:━<width$}    {:━<width$}\n", "", "", width = column_width));
-
-                let mut i = 0;
-                let mut j = 0;
-
-                // Gather all unique keys
-                let mut all_keys: Vec<&str> = Vec::new();
-                for (key, _) in exported.iter() {
-                    if !all_keys.contains(key) {
-                        all_keys.push(key);
-                    }
-                }
-                for (key, _) in imported.iter() {
-                    if !all_keys.contains(key) {
-                        all_keys.push(key);
-                    }
-                }
-
-                for key in all_keys.iter() {
-                    let exported_value = exported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
-                    let imported_value = imported.iter().find(|&(k, _)| k == key).map(|(_, v)| v);
-
-                    match (exported_value, imported_value) {
-                        (Some(value), Some(expected_value)) => {
-                            // Item in both
-                            if value == expected_value {
-                                let left_item = format!("{}{}{}", grey(key), grey("="), grey(value));
-                                let right_item = format!("{}{}{}", grey(key), grey("="), grey(expected_value));
-                                let left_item_len = key.len() + value.len() + 1; // +1 for '='
-                                let padding = " ".repeat(column_width.saturating_sub(left_item_len));
-                                error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
-                            } else {
-                                let left_item = format!("{}{}{}", blue(key), grey("="), green(value));
-                                let right_item = format!("{}{}{}", blue(key), grey("="), red(expected_value));
-                                let left_item_len = key.len() + value.len() + 1; // +1 for '='
-                                let padding = " ".repeat(column_width.saturating_sub(left_item_len));
-                                error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
-                            }
-                        }
-                        (Some(value), None) => {
-                            // Item only in exported
-                            let left_item = format!("{}{}{}", green(key), grey("="), green(value));
-                            let right_item = format!("{}", red("MISSING!"));
+                match (exported_value, imported_value) {
+                    (Some(value), Some(expected_value)) => {
+                        // Item in both
+                        if value == expected_value {
+                            let left_item = format!("{}{}{}", grey(key), grey("="), grey(value));
+                            let right_item = format!("{}{}{}", grey(key), grey("="), grey(expected_value));
+                            let left_item_len = key.len() + value.len() + 1; // +1 for '='
+                            let padding = " ".repeat(column_width.saturating_sub(left_item_len));
+                            error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
+                        } else {
+                            let left_item = format!("{}{}{}", blue(key), grey("="), green(value));
+                            let right_item = format!("{}{}{}", blue(key), grey("="), red(expected_value));
                             let left_item_len = key.len() + value.len() + 1; // +1 for '='
                             let padding = " ".repeat(column_width.saturating_sub(left_item_len));
                             error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
                         }
-                        (None, Some(value)) => {
-                            // Item only in imported
-                            let left_item = format!("{}", red("MISSING!"));
-                            let right_item = format!("{}{}{}", green(key), grey("="), green(value));
-                            let left_item_len = "MISSING!".len();
-                            let padding = " ".repeat(column_width.saturating_sub(left_item_len));
-                            error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
-                        }
-                        (None, None) => {
-                            // This should never happen as the key is from all_keys
-                            unreachable!()
-                        }
+                    }
+                    (Some(value), None) => {
+                        // Item only in exported
+                        let left_item = format!("{}{}{}", green(key), grey("="), green(value));
+                        let right_item = format!("{}", red("MISSING!"));
+                        let left_item_len = key.len() + value.len() + 1; // +1 for '='
+                        let padding = " ".repeat(column_width.saturating_sub(left_item_len));
+                        error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
+                    }
+                    (None, Some(value)) => {
+                        // Item only in imported
+                        let left_item = format!("{}", red("MISSING!"));
+                        let right_item = format!("{}{}{}", green(key), grey("="), green(value));
+                        let left_item_len = "MISSING!".len();
+                        let padding = " ".repeat(column_width.saturating_sub(left_item_len));
+                        error_message.push_str(&format!("{}{}    {}\n", left_item, padding, right_item));
+                    }
+                    (None, None) => {
+                        // This should never happen as the key is from all_keys
+                        unreachable!()
                     }
                 }
-
-                let transitive_line = format!("main binary. Note that the {} dependency might be transitive", red(env!("CARGO_PKG_NAME")));
-                let cargo_tree_line = format!("Run `cargo tree -i {}` to figure out why you even have it.", red(env!("CARGO_PKG_NAME")));
-
-                let lines = vec![
-                    "\x1b[34mHINT:\x1b[0m",
-                    "To fix this issue, rebuild this module with the same cargo features as the",
-                    &transitive_line,
-                    "(i.e., pulled indirectly by another dependency).",
-                    "",
-                    &cargo_tree_line,
-                ];
-
-                // Helper function to count visible characters (ignoring ANSI escapes)
-                fn visible_len(s: &str) -> usize {
-                    let mut len = 0;
-                    let mut in_escape = false;
-                    for c in s.chars() {
-                        if c == '\x1b' {
-                            in_escape = true;
-                        } else if in_escape {
-                            if c.is_alphabetic() {
-                                in_escape = false;
-                            }
-                        } else {
-                            len += 1;
-                        }
-                    }
-                    len
-                }
-
-                let max_width = lines.iter().map(|line| visible_len(line)).max().unwrap_or(0);
-                let box_width = max_width + 4; // Add 4 for left and right borders and spaces
-
-                error_message.push_str("\n");
-                error_message.push_str(&format!("┌{}┐\n", "─".repeat(box_width - 2)));
-
-                for line in lines {
-                    if line.is_empty() {
-                        error_message.push_str(&format!("│{}│\n", " ".repeat(box_width - 2)));
-                    } else {
-                        let visible_line_len = visible_len(line);
-                        let padding = " ".repeat(box_width - 4 - visible_line_len);
-                        error_message.push_str(&format!("│ {}{} │\n", line, padding));
-                    }
-                }
-
-                error_message.push_str(&format!("└{}┘\n", "─".repeat(box_width - 2)));
-                error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
-
-                panic!("{}", error_message);
             }
+
+            error_message.push_str("\nDifferent feature sets may result in different struct layouts, which\n");
+            error_message.push_str("would lead to memory corruption. Instead we're going to panic now.\n\n");
+
+            error_message.push_str("More info: \x1b[4m\x1b[34mhttps://crates.io/crates/rubicon\x1b[0m\n");
+
+            let rebuild_line = format!("To fix this issue, {} needs to enable", blue(so_name));
+            let transitive_line = format!("the same cargo features as {} for crate {}.", blue(&exe_name), red(env!("CARGO_PKG_NAME")));
+            let empty_line = "";
+            let hint_line = "\x1b[34mHINT:\x1b[0m";
+            let cargo_tree_line = format!("Run `cargo tree -i {} -e features` from both.", red(env!("CARGO_PKG_NAME")));
+
+            let lines = vec![
+                &rebuild_line,
+                &transitive_line,
+                empty_line,
+                hint_line,
+                &cargo_tree_line,
+            ];
+
+            let max_width = lines.iter().map(|line| visible_len(line)).max().unwrap_or(0);
+            let box_width = max_width + 4; // Add 4 for left and right borders and spaces
+
+            error_message.push_str("\n");
+            error_message.push_str(&format!("┌{}┐\n", "─".repeat(box_width - 2)));
+
+            for line in lines {
+                if line.is_empty() {
+                    error_message.push_str(&format!("│{}│\n", " ".repeat(box_width - 2)));
+                } else {
+                    let visible_line_len = visible_len(line);
+                    let padding = " ".repeat(box_width - 4 - visible_line_len);
+                    error_message.push_str(&format!("│ {}{} │\n", line, padding));
+                }
+            }
+
+            error_message.push_str(&format!("└{}┘\n", "─".repeat(box_width - 2)));
+            error_message.push_str("\n\x1b[31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\n");
+
+            panic!("{}", error_message);
         }
     };
 }

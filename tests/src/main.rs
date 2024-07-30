@@ -45,7 +45,7 @@ impl EnvVars {
     }
 }
 
-fn set_env_variables(git_root: &Path) -> EnvVars {
+fn set_env_variables() -> EnvVars {
     let mut env_vars = EnvVars::new();
 
     let rust_sysroot = Command::new("rustc")
@@ -393,7 +393,7 @@ fn run_tests() -> io::Result<()> {
     );
 
     println!("🌟 \x1b[1;36mSetting up environment variables...\x1b[0m");
-    let env_vars = set_env_variables(&git_root);
+    let env_vars = set_env_variables();
 
     println!("🌙 \x1b[1;34mInstalling nightly Rust...\x1b[0m");
     run_command(&["rustup", "toolchain", "add", "nightly"], &env_vars)?;

@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.5](https://github.com/bearcove/rubicon/compare/v3.3.4...v3.3.5) - 2024-08-01
+
+### Other
+- Don't make rubicon a dylib?
+
 ## [3.3.4](https://github.com/bearcove/rubicon/compare/v3.3.3...v3.3.4) - 2024-07-30
 
 ### Fixed

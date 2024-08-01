@@ -10,9 +10,6 @@ description = "Deduplicate globals across shared objects to enable a dangerous f
 categories = ["development-tools::ffi"]
 keywords = ["ffi", "thread-local"]
 
-[lib]
-crate-type = ["dylib"]
-
 [dependencies]
 libc = { version = "0.2.155", optional = true }
 paste = { version = "1.0.15", optional = true }

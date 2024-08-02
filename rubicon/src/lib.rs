@@ -61,6 +61,7 @@ impl<T> Deref for TrustedExtern<T> {
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         // this is a good time to run compatibility checks
+        #[cfg(not(feature = "no-compatibility-checks-yolo"))]
         (self.1)();
 
         self.0
@@ -83,6 +84,7 @@ impl<T> Deref for TrustedExternDouble<T> {
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         // this is a good time to run compatibility checks
+        #[cfg(not(feature = "no-compatibility-checks-yolo"))]
         (self.1)();
 
         self.0

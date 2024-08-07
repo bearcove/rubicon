@@ -9,7 +9,7 @@
 
 _Logo by [Misiasart](https://www.deviantart.com/misiasart)_
 
-rubicon enables a dangerous form of dynamic linking in Rust through cdylib crates
+rubicon enables a form of dynamic linking in Rust through cdylib crates
 and carefully-enforced invariants.
 
 ## Name

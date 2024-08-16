@@ -7,7 +7,7 @@
 
 ![The rubicon logo: a shallow river in northeastern Italy famously crossed by Julius Caesar in 49 BC](https://github.com/user-attachments/assets/5d94be7f-4a28-46d1-9184-c65d8f579aec)
 
-_Logo by [Misiasart](https://www.deviantart.com/misiasart)_
+_Logo by [MisiasArt](https://www.deviantart.com/misiasart)_
 
 rubicon enables a form of dynamic linking in Rust through cdylib crates
 and carefully-enforced invariants.

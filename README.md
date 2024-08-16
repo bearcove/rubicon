@@ -5,7 +5,7 @@
 
 # rubicon
 
-![The rubicon logo: a shallow river in northeastern Italy famously crossed by Julius Caesar in 49 BC](https://github.com/user-attachments/assets/5d94be7f-4a28-46d1-9184-c65d8f579aec)
+![The rubicon logo: a shallow river in northeastern Italy famously crossed by Julius Caesar in 49 BC](https://github.com/user-attachments/assets/5fecbe7f-ab5b-4ca5-8fb0-5199d33161a2)
 
 _Logo by [MisiasArt](https://www.deviantart.com/misiasart)_
 

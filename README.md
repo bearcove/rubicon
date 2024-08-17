@@ -571,3 +571,10 @@ That's about it. Don't forget the invariants!
       and some modules depend on.
 
 You can find a full example in `test-crates/` in [the rubicon repository](https://github.com/bearcove/rubicon).
+
+## License
+
+This project is primarily distributed under the terms of both the MIT license
+and the Apache License (Version 2.0).
+
+See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.

@@ -162,6 +162,7 @@ macro_rules! thread_local_inner {
             }
 
             #[no_mangle]
+            #[allow(clippy::non_upper_case_globals)]
             static [<$name __rubicon_export>]: &::std::thread::LocalKey<$ty> = &$name;
         }
     };
@@ -175,6 +176,7 @@ macro_rules! thread_local_inner {
             extern "Rust" {
                 #[link_name = stringify!([<$name __rubicon_export>])]
                 #[allow(improper_ctypes)]
+                #[allow(clippy::non_upper_case_globals)]
                 static [<$name __rubicon_import>]: &'static ::std::thread::LocalKey<$ty>;
             }
 
@@ -285,6 +287,7 @@ macro_rules! process_local_inner {
             extern "Rust" {
                 #[link_name = stringify!([<$name __rubicon_export>])]
                 #[allow(improper_ctypes)]
+                #[allow(clippy::non_upper_case_globals)]
                 static [<$name __rubicon_import>]: $ty;
             }
 

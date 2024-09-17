@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.7](https://github.com/bearcove/rubicon/compare/v3.4.6...v3.4.7) - 2024-09-17
+
+### Other
+
+- Explain running compat checks locally
+- Export compatibility_check_once no matter what cargo features are enabled
+
 ## [3.4.6](https://github.com/bearcove/rubicon/compare/v3.4.5...v3.4.6) - 2024-09-17
 
 ### Other

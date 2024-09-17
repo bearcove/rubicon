@@ -248,7 +248,7 @@ macro_rules! thread_local_inner {
 
             #[no_mangle]
             #[allow(clippy::non_upper_case_globals)]
-            static [<$name __rubicon_export>]: &::std::thread::LocalKey<$ty> = &$name;
+            static [<$name __RUBICON_EXPORT>]: &::std::thread::LocalKey<$ty> = &$name;
         }
     };
 }
@@ -260,16 +260,16 @@ macro_rules! thread_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
             extern "Rust" {
-                #[link_name = stringify!([<$name __rubicon_export>])]
+                #[link_name = stringify!([<$name __RUBICON_EXPORT>])]
                 #[allow(improper_ctypes)]
                 #[allow(clippy::non_upper_case_globals)]
-                static [<$name __rubicon_import>]: &'static ::std::thread::LocalKey<$ty>;
+                static [<$name __RUBICON_IMPORT>]: &'static ::std::thread::LocalKey<$ty>;
             }
 
             // even though this ends up being not a LocalKey, but a type that Derefs to LocalKey,
             // in practice, most codebases work just fine with this, since they call methods
             // that takes `self: &LocalKey`: they don't see the difference.
-            $vis static $name: $crate::TrustedExternDouble<::std::thread::LocalKey<$ty>> = $crate::TrustedExternDouble(unsafe { &[<$name __rubicon_import>] }, crate::compatibility_check_once);
+            $vis static $name: $crate::TrustedExternDouble<::std::thread::LocalKey<$ty>> = $crate::TrustedExternDouble(unsafe { &[<$name __RUBICON_IMPORT>] }, crate::compatibility_check_once);
         }
     };
 }
@@ -380,7 +380,7 @@ macro_rules! process_local {
 macro_rules! process_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
-            #[export_name = stringify!([<$name __rubicon_export>])]
+            #[export_name = stringify!([<$name __RUBICON_EXPORT>])]
             $(#[$attrs])*
             $vis static $name: $ty = $expr;
         }
@@ -392,7 +392,7 @@ macro_rules! process_local_inner {
 macro_rules! process_local_inner_mut {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
-            #[export_name = stringify!([<$name __rubicon_export>])]
+            #[export_name = stringify!([<$name __RUBICON_EXPORT>])]
             $(#[$attrs])*
             $vis static mut $name: $ty = $expr;
         }
@@ -406,13 +406,13 @@ macro_rules! process_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
             extern "Rust" {
-                #[link_name = stringify!([<$name __rubicon_export>])]
+                #[link_name = stringify!([<$name __RUBICON_EXPORT>])]
                 #[allow(improper_ctypes)]
                 #[allow(clippy::non_upper_case_globals)]
-                static [<$name __rubicon_import>]: $ty;
+                static [<$name __RUBICON_IMPORT>]: $ty;
             }
 
-            $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __rubicon_import>] }, crate::compatibility_check_once);
+            $vis static $name: $crate::TrustedExtern<$ty> = $crate::TrustedExtern(unsafe { &[<$name __RUBICON_IMPORT>] }, crate::compatibility_check_once);
         }
     };
 }
@@ -425,7 +425,7 @@ macro_rules! process_local_inner_mut {
             // externs require "unsafe" to access, but so do "static mut", so,
             // no need to wrap in `TrustedExtern`
             extern "Rust" {
-                #[link_name = stringify!([<$name __rubicon_export>])]
+                #[link_name = stringify!([<$name __RUBICON_EXPORT>])]
                 #[allow(improper_ctypes)]
                 $vis static mut $name: $ty;
             }

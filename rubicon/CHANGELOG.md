@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.5](https://github.com/bearcove/rubicon/compare/v3.4.4...v3.4.5) - 2024-09-17
+
+### Other
+
+- Add logo to docs page
+
 ## [3.4.4](https://github.com/bearcove/rubicon/compare/v3.4.3...v3.4.4) - 2024-09-17
 
 ### Other

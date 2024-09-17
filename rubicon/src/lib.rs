@@ -740,7 +740,9 @@ macro_rules! compatibility_check {
 #[macro_export]
 macro_rules! compatibility_check {
     ($($feature:tt)*) => {
-        // compatibility checks are only supported on unix-like system
+        pub fn compatibility_check_once() {
+            // compatibility checks are only supported on unix-like system
+        }
     };
 }
 
@@ -857,5 +859,9 @@ macro_rules! compatibility_check {
 #[cfg(not(any(feature = "export-globals", feature = "import-globals")))]
 #[macro_export]
 macro_rules! compatibility_check {
-    ($($feature:tt)*) => {};
+    ($($feature:tt)*) => {
+        pub fn compatibility_check_once() {
+            // no-op unless we're importing/exporting globals
+        }
+    };
 }

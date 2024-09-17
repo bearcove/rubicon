@@ -316,6 +316,10 @@ macro_rules! thread_local_inner {
 ///
 /// ```rust
 /// # use std::sync::atomic::AtomicU32;
+/// # struct Dispatcher;
+/// # impl Dispatcher {
+/// #     const fn new() -> Self { Self }
+/// # }
 /// rubicon::process_local! {
 ///     static FOO: AtomicU32 = AtomicU32::new(42);
 ///     static mut BAR: Dispatcher = Dispatcher::new();

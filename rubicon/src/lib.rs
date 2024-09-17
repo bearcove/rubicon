@@ -62,7 +62,10 @@
 //! rustc flag would singlehandedly solve the problem.
 //!
 //! Someone just has to do it. In the meantime, this crate (and source-patching crates like
-//! `tokio`, `tracing`, `parking_lot`, `eyre`, see the [compatibility tracker](https://github.com/bearcove/rubicon/issues/3).
+//! `tokio`, `tracing`, `parking_lot`, `eyre`, see the [compatibility tracker](https://github.com/bearcove/rubicon/issues/3))
+//! act as a "polyfill" — proving that it's a reasonable and useful approach, which should
+//! make "hey can we let rustc dangerously allow dynamic linking" simpler to defend when it
+//! comes time to submit a PR.
 //!
 //! ## Safety
 //!

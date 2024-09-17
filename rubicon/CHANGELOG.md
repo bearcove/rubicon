@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.8](https://github.com/bearcove/rubicon/compare/v3.4.7...v3.4.8) - 2024-09-17
+
+### Fixed
+
+- Improve compatibility_check_once
+
 ## [3.4.7](https://github.com/bearcove/rubicon/compare/v3.4.6...v3.4.7) - 2024-09-17
 
 ### Other

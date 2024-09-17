@@ -854,6 +854,34 @@ macro_rules! compatibility_check {
 /// │ Run `cargo tree -i mokio -e features` from both.      │
 /// └───────────────────────────────────────────────────────┘
 /// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+///
+/// # Running compatibility checks manually
+///
+/// Sometimes, you might want to check for ABI compatibility but you might not have
+/// any thread-local or process-local that `rubicon` could sneak a compatibility check into.
+///
+/// In that case, you can run the compatibility check manually. Maybe you can sneak
+/// it into a `Deref` impl, something like that:
+///
+/// ```rust,ignore
+/// rubicon::compatibility_check! {
+///     ("version", env!("CARGO_PKG_VERSION")),
+///     // etc.
+/// }
+///
+/// pub struct MySuperWrapperType(String);
+///
+/// impl Deref for MySuperWrapperType {
+///     type Target = MySuperType;
+///
+///     fn deref(&self) -> &Self::Target {
+///         // this is a good time to run compatibility checks
+///         #[cfg(not(feature = "no-compatibility-checks-yolo"))]
+///         crate::compatibility_check_once();
+///
+///         &self.0
+///     }
+/// }
 /// ```
 
 #[cfg(not(any(feature = "export-globals", feature = "import-globals")))]

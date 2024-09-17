@@ -7,25 +7,70 @@
 //!
 //! The main macros provided are:
 //!
-//! - `thread_local!`: A drop-in replacement for `std::thread_local!`
-//! - `process_local!`: Used to declare statics (including `static mut`)
+//! - [`thread_local!`]: A drop-in replacement for [`std::thread_local!`]
+//! - [`process_local!`]: Used to declare statics (including `static mut`)
 //!
-//! These macros behave differently depending on whether the `export-globals` or
-//! `import-globals` feature is enabled:
+//! These macros behave differently depending on which feature is enabled:
 //!
-//! - With `export-globals`: Symbols are exported for use by dynamically loaded modules
-//! - With `import-globals`: Symbols are imported from the main executable
-//! - With neither: The macros act as pass-through to standard Rust constructs
+//! - `export-globals`: symbols are exported for use by other shared objects
+//! - `import-globals`: symbols are imported from "the dynamic loader namespace"
+//! - neither: the macros act as pass-through to standard Rust constructs
 //!
-//! # Safety
+//! Additionally, the [`compatibility_check!`] macro is provided to help ensure that
+//! common dependencies used by various shared objects are ABI-compatible.
 //!
-//! Using this crate requires careful adherence to several invariants:
+//! ## Explain like I'm five
 //!
-//! 1. Modules must never be unloaded, only loaded.
-//! 2. The exact same Rust compiler version must be used for the app and all modules.
-//! 3. The exact same cargo features must be enabled for shared dependencies.
+//! Let's assume you're a very precocious five-year old: say you're making a
+//! static site generator. Part of its job is to compile LaTeX markup into HTML:
+//! this uses KaTeX, which requires a JavaScript runtime, that takes a long time
+//! to compile.
 //!
-//! Failure to maintain these invariants can lead to undefined behavior.
+//! You decide you want to put this functionality in a shared object, so that you
+//! can iterate on the _rest_ of the static site generator without the whole JS
+//! runtime being recompiled every time, or even taken into account by cargo when
+//! doing check/clippy/build/test/etc.
+//!
+//! However, both your app and your "latex module" use the [tracing](https://crates.io/crates/tracing)
+//! crate for structured logging. tracing uses "globals" (thread-locals and process-locals) to
+//! keep track of the current span, and where to log events (ie. the "subscriber").
+//!
+//! If you do `tracing_subscriber::fmt::init()` from the app, any use of `tracing` in the app
+//! will work fine, but if you do the same from the module, the log events will go nowhere:
+//! as far as it's concerned (because it has a copy of the entire code of `tracing`), there
+//! _is_ no subscriber.
+//!
+//! This is where `rubicon` comes in: by patching `tracing` to use rubicon's macros, like
+//! [`thread_local!`] and [`process_local!`], we can have the app _export_ the globals, and
+//! the module _import_ them, so that there's only one "global subscriber" for all shared
+//! objects.
+//!
+//! ## That's it?
+//!
+//! Not quite — it's actually annoyingly hard to export symbols from an executable. So really
+//! what you have instead is a `rubicon-exports` shared object that both the app and the module
+//! link against, and import all globals from.
+//!
+//! ## Why isn't this built into rustc/cargo?
+//!
+//! Because of the "Safety" section below. However, I believe if we work together,
+//! we can make this crate redundant. A global `-C globals-linkage=[import,export]`
+//! rustc flag would singlehandedly solve the problem.
+//!
+//! Someone just has to do it. In the meantime, this crate (and source-patching crates like
+//! `tokio`, `tracing`, `parking_lot`, `eyre`, see the [compatibility tracker](https://github.com/bearcove/rubicon/issues/3).
+//!
+//! ## Safety
+//!
+//! By using this crate, you agree to:
+//!
+//! 1. Use the exact same rustc version for all shared objects
+//! 2. Not use [`-Z randomize-layout`](https://github.com/rust-lang/rust/issues/77316) (duh)
+//! 3. Enable the exact same cargo features for all common dependencies (e.g. `tokio`)
+//!
+//! In short: don't do anything that would cause crates to have a different ABI from one shared
+//! object to the next. 1 and 2 are trivial, as for 3, the [`compatibility_check!`] macro is here
+//! to help.
 //!
 //! For more details on the motivation and implementation of the "xgraph" model,
 //! refer to the [crate's README and documentation](https://github.com/bearcove/rubicon?tab=readme-ov-file#rubicon).
@@ -95,29 +140,62 @@ impl<T> Deref for TrustedExternDouble<T> {
 // Thread-locals
 //==============================================================================
 
-/// Imports or exports a thread-local, depending on the enabled cargo features.
+/// A drop-in replacement for [`std::thread_local`] that imports/exports the
+/// thread-local, depending on the enabled cargo features.
 ///
-/// Usage:
+/// Before:
 ///
-///   ```ignore
-///   rubicon::thread_local! {
-///       static FOO: AtomicU32 = AtomicU32::new(42);
-///   }
-///   ```
+/// ```rust
+/// # use std::sync::atomic::AtomicU32;
+/// std::thread_local! {
+///     static FOO: AtomicU32 = AtomicU32::new(42);
+/// }
+/// ```
+///
+/// After:
+///
+/// ```rust
+/// # use std::sync::atomic::AtomicU32;
+/// rubicon::thread_local! {
+///     static FOO: AtomicU32 = AtomicU32::new(42);
+/// }
+/// ```
 ///
 /// This will import `FOO` if the `import-globals` feature is enabled, and export it if the
 /// `export-globals` feature is enabled.
 ///
-/// If neither feature is enabled, this will be equivalent to `std::thread_local!`.
+/// rubicon tries to be non-obtrusive: when neither feature is enabled, the macro
+/// forwards to [`std::thread_local`], resulting in no performance penalty,
+/// no difference in binary size, etc.
 ///
-/// This macro supports multiple declarations:
+/// ## Name mangling, collisions
 ///
-///   ```ignore
-///   rubicon::thread_local! {
-///       static FOO: AtomicU32 = AtomicU32::new(42);
-///       static BAR: AtomicU32 = AtomicU32::new(43);
-///   }
-///   ```
+/// When the `import-globals` or `export-globals` feature is enabled, name mangling
+/// will be disabled for thread-locals declared through this macro (due to unfortunate
+/// limitations of the Rust attributes used to implement this).
+///
+/// We recommend prefixing your thread-locals with your crate/module name to
+/// avoid collisions:
+///
+/// ```rust
+/// # use std::sync::atomic::AtomicU32;
+/// rubicon::thread_local! {
+///     static MY_CRATE_FOO: AtomicU32 = AtomicU32::new(42);
+/// }
+/// ```
+///
+/// ## Multiple declarations
+///
+/// This macro supports multiple declarations in the same invocation, just like
+/// [`std::thread_local`] would:
+///
+/// ```rust
+/// # use std::sync::atomic::AtomicU32;
+/// rubicon::thread_local! {
+///     static FOO: AtomicU32 = AtomicU32::new(42);
+///     static BAR: AtomicU32 = AtomicU32::new(43);
+/// }
+/// ```
 #[cfg(not(any(feature = "import-globals", feature = "export-globals")))]
 #[macro_export]
 macro_rules! thread_local {
@@ -170,6 +248,7 @@ macro_rules! thread_local_inner {
 
 #[cfg(feature = "import-globals")]
 #[macro_export]
+#[allow(clippy::crate_in_macro_def)] // we _do_ mean the invocation site's crate, not the macro's
 macro_rules! thread_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
@@ -194,28 +273,58 @@ macro_rules! thread_local_inner {
 
 /// Imports or exports a `static`, depending on the enabled cargo features.
 ///
-/// Usage:
+/// Before:
 ///
-///   ```ignore
-///   rubicon::process_local! {
-///       static FOO: u32 = 42;
-///   }
-///   ```
+/// ```rust
+/// static FOO: u32 = 42;
+/// ```
+///
+/// After:
+///
+/// ```rust
+/// rubicon::process_local! {
+///     static FOO: u32 = 42;
+/// }
+/// ```
 ///
 /// This will import `FOO` if the `import-globals` feature is enabled, and export it if the
 /// `export-globals` feature is enabled.
 ///
-/// If neither feature is enabled, this will expand to the static declaration itself.
+/// rubicon tries to be non-obtrusive: when neither feature is enabled, the macro
+/// will expand to the static declaration itself, resulting in no performance penalty,
+/// no difference in binary size, etc.
+///
+/// ## Name mangling, collisions
+///
+/// When the `import-globals` or `export-globals` feature is enabled, name mangling
+/// will be disabled for process-locals declared through this macro (due to unfortunate
+/// limitations of the Rust attributes used to implement this).
+///
+/// We recommend prefixing your process-locals with your crate/module name to
+/// avoid collisions:
+///
+/// ```rust
+/// rubicon::process_local! {
+///     static MY_CRATE_FOO: u32 = 42;
+/// }
+/// ```
+///
+/// ## Multiple declarations, `mut`
 ///
 /// This macro supports multiple declarations, along with `static mut` declarations
 /// (which have a slightly different expansion).
 ///
-///   ```ignore
-///   rubicon::thread_local! {
-///       static FOO: AtomicU32 = AtomicU32::new(42);
-///       static mut BAR: Dispatcher = Dispatcher::new();
-///   }
-///   ```
+/// ```rust
+/// # use std::sync::atomic::AtomicU32;
+/// rubicon::process_local! {
+///     static FOO: AtomicU32 = AtomicU32::new(42);
+///     static mut BAR: Dispatcher = Dispatcher::new();
+/// }
+/// ```
+///
+/// If you're curious about the exact macro expansion, ask rust-analyzer to
+/// expand it for you via its [Expand Macro Recursively](https://rust-analyzer.github.io/manual.html#expand-macro-recursively)
+/// functionalityl.
 #[cfg(all(not(feature = "import-globals"), not(feature = "export-globals")))]
 #[macro_export]
 macro_rules! process_local {
@@ -281,6 +390,7 @@ macro_rules! process_local_inner_mut {
 
 #[cfg(feature = "import-globals")]
 #[macro_export]
+#[allow(clippy::crate_in_macro_def)] // we _do_ mean the invocation site's crate, not the macro's
 macro_rules! process_local_inner {
     ($(#[$attrs:meta])* $vis:vis $name:ident, $ty:ty, $expr:expr) => {
         $crate::paste! {
@@ -622,6 +732,116 @@ macro_rules! compatibility_check {
         // compatibility checks are only supported on unix-like system
     };
 }
+
+/// Performs a compatibility check for the crate when using Rubicon's dynamic linking features.
+///
+/// This macro is mandatory when the `import-globals` feature is enabled (as of Rubicon 3.3.3).
+/// It exports information about the crate's version and enabled features, which is then used
+/// by the import macros to ensure compatibility between different shared objects.
+///
+/// # Usage
+///
+/// At a minimum, you should include the crate's version:
+///
+/// ```
+/// rubicon::compatibility_check! {
+///     ("version", env!("CARGO_PKG_VERSION")),
+/// }
+/// ```
+///
+/// For crates with feature flags that affect struct layouts, you should include those as well:
+///
+/// ```
+/// rubicon::compatibility_check! {
+///     ("version", env!("CARGO_PKG_VERSION")),
+///     #[cfg(feature = "my_feature")]
+///     ("my_feature", "enabled"),
+///     #[cfg(feature = "another_feature")]
+///     ("another_feature", "enabled"),
+/// }
+/// ```
+///
+/// # Why is this necessary?
+///
+/// When using Rubicon for dynamic linking, different shared objects may handle the same structs.
+/// If these shared objects have different features enabled, it can lead to incompatible struct
+/// layouts, causing memory corruption and safety issues.
+///
+/// For example, in the Tokio runtime, enabling different features like timers or file system
+/// support can change the internal structure of various components. If one shared object expects
+/// a struct with certain fields (due to its feature set) and another shared object operates on
+/// that struct with a different expectation, it can lead to undefined behavior.
+///
+/// This macro ensures that all shared objects agree on the crate's configuration, preventing
+/// such mismatches.
+///
+/// # Real-world example (from tokio)
+///
+/// See [this pull request](https://github.com/bearcove/tokio/pull/2)
+///
+/// ```
+/// rubicon::compatibility_check! {
+///     ("version", env!("CARGO_PKG_VERSION")),
+///     #[cfg(feature = "fs")]
+///     ("fs", "enabled"),
+///     #[cfg(feature = "io-util")]
+///     ("io-util", "enabled"),
+///     #[cfg(feature = "io-std")]
+///     ("io-std", "enabled"),
+///     #[cfg(feature = "net")]
+///     ("net", "enabled"),
+///     #[cfg(feature = "process")]
+///     ("process", "enabled"),
+///     #[cfg(feature = "rt")]
+///     ("rt", "enabled"),
+///     #[cfg(feature = "rt-multi-thread")]
+///     ("rt-multi-thread", "enabled"),
+///     #[cfg(feature = "signal")]
+///     ("signal", "enabled"),
+///     #[cfg(feature = "sync")]
+///     ("sync", "enabled"),
+///     #[cfg(feature = "time")]
+///     ("time", "enabled"),
+/// }
+/// ```
+///
+/// # When does the check happen and what happens if it fails?
+///
+/// The check happens at runtime, lazily, when a global imported from a rubicon-aware
+/// crate is accessed (behind a [`std::sync::Once`]).
+///
+/// If the check fails, the process will panic with a message like:
+///
+/// ```text
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+///  💀 Feature mismatch for crate mokio
+///
+/// libmod_b.dylib has an incompatible configuration for mokio.
+///
+/// ┌──────────────────────────────────────────────────────────────────┐
+/// │ Key               │ Binary samplebin     │ Module libmod_b.dylib │
+/// ╞══════════════════════════════════════════════════════════════════╡
+/// │ rustc-version     │ 1.81.0               │ 1.81.0                │
+/// │ target-triple     │ aarch64-apple-darwin │ aarch64-apple-darwin  │
+/// │ mokio_pkg_version │ 0.1.0                │ 0.1.0                 │
+/// │ timer             │ disabled             │ enabled               │
+/// │ timer_is_disabled │ 1                    │ ∅                     │
+/// └──────────────────────────────────────────────────────────────────┘
+///
+/// Different feature sets may result in different struct layouts, which
+/// would lead to memory corruption. Instead, we're going to panic now.
+///
+/// More info: https://crates.io/crates/rubicon
+///
+/// ┌───────────────────────────────────────────────────────┐
+/// │ To fix this issue, libmod_b.dylib needs to enable     │
+/// │ the same cargo features as samplebin for crate mokio. │
+/// │                                                       │
+/// │ HINT:                                                 │
+/// │ Run `cargo tree -i mokio -e features` from both.      │
+/// └───────────────────────────────────────────────────────┘
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// ```
 
 #[cfg(not(any(feature = "export-globals", feature = "import-globals")))]
 #[macro_export]

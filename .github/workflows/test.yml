@@ -25,6 +25,9 @@ jobs:
           override: true
       - name: Add nightly
         run: rustup toolchain add nightly
+      - name: Run unit tests
+        run: |
+          cargo test --manifest-path rubicon/Cargo.toml
       - name: Run tests runner
         run: |
           cd tests/

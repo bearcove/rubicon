@@ -72,7 +72,7 @@
 //! By using this crate, you agree to:
 //!
 //! 1. Use the exact same rustc version for all shared objects
-//! 2. Not use [`-Z randomize-layout`](https://github.com/rust-lang/rust/issues/77316) (duh)
+//! 2. Not use [`-Z randomize-layout`](https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/randomize-layout.html#randomize-layout) (duh)
 //! 3. Enable the exact same cargo features for all common dependencies (e.g. `tokio`)
 //!
 //! In short: don't do anything that would cause crates to have a different ABI from one shared

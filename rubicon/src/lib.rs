@@ -886,7 +886,6 @@ macro_rules! compatibility_check {
 ///     }
 /// }
 /// ```
-
 #[cfg(not(any(feature = "export-globals", feature = "import-globals")))]
 #[macro_export]
 macro_rules! compatibility_check {

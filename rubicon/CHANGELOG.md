@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.10](https://github.com/bearcove/rubicon/compare/v3.4.9...v3.4.10) - 2024-12-06
+
+### Other
+
+- Remove empty line after doc comment
+- Link to the new -Z randomize-layout doc page
+
 ## [3.4.9](https://github.com/bearcove/rubicon/compare/v3.4.8...v3.4.9) - 2024-09-17
 
 ### Fixed
